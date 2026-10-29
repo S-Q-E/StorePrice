@@ -1,125 +1,83 @@
 package com.storeprice.app.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
-import com.storeprice.app.R
-import com.storeprice.app.core.formatKzt
-import com.storeprice.app.ui.theme.StorePriceTheme
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.storeprice.app.ui.product.ProductDetailScreen
+import com.storeprice.app.ui.product.ProductEditorScreen
+import com.storeprice.app.ui.products.ProductListScreen
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun StorePriceApp(modifier: Modifier = Modifier) {
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            TopAppBar(title = { Text(stringResource(R.string.app_name)) })
-        },
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                shape = MaterialTheme.shapes.small,
-            ) {
-                Text(
-                    text = stringResource(R.string.stage_label),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
+private object Routes {
+    const val PRODUCTS = "products"
+    const val NEW_PRODUCT = "product/new"
+    const val EDIT_PRODUCT = "product/{productId}/edit"
+    const val PRODUCT_DETAIL = "product/{productId}"
 
-            Text(
-                text = stringResource(R.string.stage_title),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-
-            Text(
-                text = stringResource(R.string.stage_description),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                ),
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.example_price_title),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = formatKzt(12_345L),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = stringResource(R.string.next_step_title),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        text = stringResource(R.string.next_step_description),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-    }
+    fun editProduct(id: String): String = "product/$id/edit"
+    fun productDetail(id: String): String = "product/$id"
 }
 
-@Preview(showBackground = true)
 @Composable
-private fun StorePriceAppPreview() {
-    StorePriceTheme {
-        StorePriceApp()
+fun StorePriceApp(modifier: Modifier = Modifier) {
+    val navController = rememberNavController()
+
+    NavHost(
+        navController = navController,
+        startDestination = Routes.PRODUCTS,
+        modifier = modifier,
+    ) {
+        composable(Routes.PRODUCTS) {
+            ProductListScreen(
+                onAddProduct = { navController.navigate(Routes.NEW_PRODUCT) },
+                onProductClick = { id ->
+                    navController.navigate(Routes.productDetail(id))
+                },
+            )
+        }
+
+        composable(Routes.NEW_PRODUCT) {
+            ProductEditorScreen(
+                productId = null,
+                onBack = { navController.popBackStack() },
+                onSaved = { id ->
+                    navController.navigate(Routes.productDetail(id)) {
+                        popUpTo(Routes.NEW_PRODUCT) { inclusive = true }
+                    }
+                },
+            )
+        }
+
+        composable(
+            route = Routes.EDIT_PRODUCT,
+            arguments = listOf(navArgument("productId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val productId = requireNotNull(backStackEntry.arguments?.getString("productId"))
+            ProductEditorScreen(
+                productId = productId,
+                onBack = { navController.popBackStack() },
+                onSaved = { _ -> navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = Routes.PRODUCT_DETAIL,
+            arguments = listOf(navArgument("productId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val productId = requireNotNull(backStackEntry.arguments?.getString("productId"))
+            ProductDetailScreen(
+                productId = productId,
+                onBack = { navController.popBackStack() },
+                onEdit = { id -> navController.navigate(Routes.editProduct(id)) },
+                onDeleted = {
+                    if (!navController.popBackStack(Routes.PRODUCTS, inclusive = false)) {
+                        navController.navigate(Routes.PRODUCTS)
+                    }
+                },
+            )
+        }
     }
 }

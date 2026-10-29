@@ -1,10 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">StorePrice</string>
-    <string name="stage_label">Этап 0</string>
-    <string name="stage_title">Базовая сборка готова</string>
-    <string name="stage_description">Минимальное нативное приложение на Kotlin и Jetpack Compose. Каталог товаров, сканер, Supabase и уведомления будут добавлены на следующих этапах.</string>
-    <string name="example_price_title">Пример форматирования цены</string>
-    <string name="next_step_title">Следующий этап</string>
-    <string name="next_step_description">Локальный каталог на Room, CRUD и поиск.</string>
+
+    <string name="catalog_title">Товары</string>
+    <string name="product_detail_title">Товар</string>
+    <string name="catalog_local_badge">Локальный каталог</string>
+    <string name="search_placeholder">Название или штрихкод</string>
+    <string name="search_clear">Очистить поиск</string>
+    <string name="add_product">Добавить товар</string>
+    <string name="products_found">Найдено: %1$d</string>
+    <string name="no_barcode">Без штрихкода</string>
+    <string name="barcode_value">Штрихкод: %1$s</string>
+
+    <string name="empty_catalog_title">Каталог пуст</string>
+    <string name="empty_catalog_description">Добавьте первый товар — он сохранится на этом устройстве.</string>
+    <string name="empty_search_title">Ничего не найдено</string>
+    <string name="empty_search_description">Проверьте название или штрихкод и попробуйте снова.</string>
+
+    <string name="back">Назад</string>
+    <string name="edit">Изменить</string>
+    <string name="delete">Удалить</string>
+    <string name="cancel">Отмена</string>
+    <string name="save">Сохранить</string>
+    <string name="saving">Сохранение…</string>
+
+    <string name="new_product_title">Новый товар</string>
+    <string name="edit_product_title">Редактирование</string>
+    <string name="name_label">Название</string>
+    <string name="name_placeholder">Например, Молоко 3,2%</string>
+    <string name="price_label">Цена, ₸</string>
+    <string name="price_placeholder">Например, 1250</string>
+    <string name="price_preview">Будет сохранено: %1$s</string>
+    <string name="barcode_label">Штрихкод (необязательно)</string>
+    <string name="barcode_hint">Можно оставить пустым. Ведущие нули сохраняются.</string>
+    <string name="barcode_detail_label">Штрихкод</string>
+
+    <string name="last_updated_label">Последнее изменение</string>
+    <string name="product_not_found">Товар не найден</string>
+    <string name="product_not_found_description">Возможно, он был удалён. Вернитесь к каталогу.</string>
+    <string name="back_to_catalog">К каталогу</string>
+
+    <string name="delete_title">Удалить товар?</string>
+    <string name="delete_message">«%1$s» будет скрыт из каталога. Восстановление появится на следующем этапе.</string>
+    <string name="deleting">Удаление…</string>
+
+    <string name="error_name_required">Введите название товара</string>
+    <string name="error_price_required">Введите цену</string>
+    <string name="error_price_invalid">Цена должна быть целым неотрицательным числом</string>
+    <string name="error_price_too_large">Слишком большая цена</string>
+    <string name="error_barcode_too_long">Штрихкод слишком длинный</string>
+    <string name="error_barcode_duplicate">Такой штрихкод уже есть у другого товара</string>
+    <string name="error_save_failed">Не удалось сохранить товар. Попробуйте ещё раз.</string>
+    <string name="error_delete_failed">Не удалось удалить товар. Попробуйте ещё раз.</string>
 </resources>

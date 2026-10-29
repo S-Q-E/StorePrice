@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# User-local Android toolchain installed for StorePrice stage 0.
+# User-local Android toolchain for StorePrice.
 # Usage: source scripts/android-env.sh
 
 if [ -z "${JAVA_HOME:-}" ]; then
@@ -16,4 +16,4 @@ if [ -n "$GRADLE_HOME" ]; then
   export PATH="$GRADLE_HOME/bin:$PATH"
 fi
 
-export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/build-tools/35.0.0:$PATH"

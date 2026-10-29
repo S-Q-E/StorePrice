@@ -2,7 +2,7 @@
 
 ## 1. Статус документа
 
-Описана **целевая** архитектура из ТЗ и **фактически созданный** каркас этапа 0. Компоненты, отмеченные «план», ещё не реализованы.
+Описана целевая архитектура из ТЗ и фактически реализованный локальный каталог этапа 2. Компоненты, отмеченные «план», ещё не реализованы.
 
 ## 2. Целевая схема
 
@@ -38,137 +38,187 @@
         Firebase Cloud Messaging → устройства сотрудников
 ```
 
-## 3. Потоки данных
-
-### Чтение каталога
+## 3. Реализованный поток данных (этап 2)
 
 ```text
-Room (Flow) → Repository → ViewModel → StateFlow → Compose UI
+Compose Screen
+    │ user events
+    ▼
+ViewModel (StateFlow<UiState>)
+    │
+    ▼
+ProductRepository
+    │
+    ▼
+Room: ProductDao → storeprice.db
+    │ Flow<List<ProductEntity>>
+    └──────────────────────────► ViewModel → Compose
 ```
 
-UI никогда не ждёт сеть, чтобы показать последнюю локальную копию. Сеть обновляет Room; Room автоматически уведомляет UI.
+- UI не обращается к Room напрямую.
+- Все чтения — через `Flow`, поэтому список и карточка обновляются после записи автоматически.
+- Запись идёт через `Repository`; проверка штрихкода и вставка выполняются под локальным `Mutex`, чтобы две операции приложения не создали дубликат.
+- Один модуль `:app`; дробление на Gradle-модули преждевременно.
 
-### Изменение цены (план)
+### Поиск
+
+`ProductRepository.observeProducts(query)`:
+
+1. Нормализует запрос: trim, схлопывание пробелов, lowercase (`Locale.ROOT`).
+2. Экранирует `%`, `_`, `\` для SQL `LIKE`.
+3. Для пустого запроса вызывает `observeAll()`.
+4. Иначе — `observeSearch()` с приоритетом:
+   - точный штрихкод;
+   - точное название;
+   - штрихкод-префикс;
+   - название-префикс;
+   - вхождение;
+   - стабильная сортировка по нормализованному названию и `id`.
+5. Возвращает domain-модели `Product`, скрывая `is_deleted = 1`.
+
+`ProductListViewModel` использует `collectLatest`: при быстром вводе предыдущий запрос отменяется. Поиск полностью локальный, сеть не участвует.
+
+### Валидация
+
+`ProductValidator`:
+
+- имя обязательно, trim + схлопывание пробелов;
+- цена — только целое неотрицательное число, пробелы и NBSP допускаются как разделители;
+- переполнение `Long` отклоняется;
+- пустой штрихкод → `null`, ведущие нули сохраняются;
+- длина штрихкода ≤ 64;
+- дубликат активного штрихкода проверяется репозиторием без учёта регистра.
+
+## 4. Схема локальной БД (v1)
+
+Файл: `app/schemas/com.storeprice.app.data.local.StorePriceDatabase/1.json`.
+
+Таблица `products`:
+
+| Поле | Тип | Правило |
+|---|---|---|
+| `id` | TEXT PK | UUID, генерируется при создании |
+| `barcode` | TEXT NULL | отображаемое значение, ведущие нули сохраняются |
+| `barcode_normalized` | TEXT NULL | lowercase для поиска и проверки дубликатов |
+| `name` | TEXT | отображаемое название |
+| `name_normalized` | TEXT | lowercase + схлопнутые пробелы для поиска |
+| `price_kzt` | INTEGER | целые тенге, ≥ 0 |
+| `is_deleted` | INTEGER | логическое удаление |
+| `created_at` | INTEGER | epoch millis UTC |
+| `updated_at` | INTEGER | epoch millis UTC |
+| `version` | INTEGER | локальная версия записи, растёт при изменении/удалении |
+
+Индексы: `barcode_normalized`, `name_normalized`.
+
+Ограничения текущего этапа:
+
+- уникальность штрихкода обеспечивается репозиторием, а не SQLite-констрейнтом, потому что уникальность нужна только среди неудалённых записей;
+- миграций пока нет: схема v1. При любом изменении сущности нужна миграция и новая версия; destructive fallback запрещён;
+- восстановление удалённого товара появится вместе с административными функциями.
+
+## 5. UI и навигация
 
 ```text
-UI → ViewModel → Repository → Supabase RPC/таблица
-                                  ├── проверка роли (RLS)
-                                  ├── optimistic concurrency по version
-                                  ├── запись price_history на сервере
-                                  └── постановка push-события
-→ Realtime/FCM → клиенты → Room → UI
+products (каталог + поиск)
+├── product/new              → форма создания
+└── product/{id}             → карточка
+    └── product/{id}/edit    → форма редактирования
 ```
 
-Клиент не формирует доверенную историю цен и не назначает роли.
+Экраны:
 
-### Офлайн (план)
+- **Каталог** — поиск, счётчик, локальный бейдж, список, пустые состояния, FAB добавления.
+- **Карточка** — название, цена, штрихкод, время изменения, редактирование, удаление с подтверждением.
+- **Форма** — валидация полей, предпросмотр цены, ошибка дубликата штрихкода, сохранение.
 
-```text
-Запуск → показать Room → проверить сеть → инкрементальная синхронизация
-       → обновить Room → обновить время последней синхронизации
-```
+Удаление — логическое; после него карточка закрывается, товар исчезает из списка и поиска, штрихкод можно использовать снова.
 
-Изменения в офлайне в MVP запрещены: форма сохраняет ввод и объясняет, что нужно соединение. Архитектура оставляет место для очереди операций, но не реализует её преждевременно.
+Интерфейс не показывает фиктивные сетевые статусы: на этапе 2 отображается честная метка «Локальный каталог».
 
-## 4. Целевая структура пакетов
+## 6. Фактическая структура
 
 ```text
 com.storeprice.app
 ├── MainActivity.kt
-├── core/            # форматирование, общие утилиты, Result-типы
+├── StorePriceApplication.kt      # AppContainer, ручной DI
+├── core/
+│   ├── PriceFormatter.kt
+│   ├── SearchText.kt
+│   └── DateTimeFormat.kt
 ├── data/
-│   ├── local/       # Room: entities, DAO, database, converters
-│   ├── remote/      # Supabase/Retrofit DTO, API, auth
-│   ├── repository/  # ProductsRepository, AuthRepository, SyncRepository
-│   └── sync/        # WorkManager, инкрементальная синхронизация
-├── domain/          # модели, use cases, бизнес-правила
+│   ├── local/
+│   │   ├── ProductEntity.kt
+│   │   ├── ProductDao.kt
+│   │   └── StorePriceDatabase.kt
+│   └── repository/
+│       └── ProductRepository.kt
+├── domain/
+│   ├── model/Product.kt
+│   └── validation/ProductValidator.kt
 └── ui/
+    ├── StorePriceApp.kt          # NavHost
+    ├── AppRepository.kt
     ├── theme/
-    ├── components/
-    ├── products/    # список, поиск
-    ├── product/     # карточка, редактирование
-    ├── scanner/
-    ├── history/
-    └── auth/
+    ├── products/                 # ProductListScreen + ViewModel
+    └── product/                  # detail/editor + ViewModel
 ```
 
-На этапе 0 созданы только `MainActivity`, `ui/StorePriceApp.kt`, `ui/theme` и `core/PriceFormatter.kt`. Пустые пакеты заранее не создавались.
-
-## 5. Фактический каркас этапа 0
+Тесты:
 
 ```text
-StorePrice/
-├── AGENTS.md
-├── REQUIREMENTS.md
-├── ARCHITECTURE.md
-├── ROADMAP.md
-├── CURRENT_STATUS.md
-├── README.md
-├── build.gradle.kts
-├── settings.gradle.kts
-├── gradle.properties
-├── gradle/
-│   ├── libs.versions.toml
-│   └── wrapper/
-├── gradlew, gradlew.bat
-├── scripts/android-env.sh
-├── docs/
-│   ├── REQUIREMENTS.md
-│   ├── SETUP_LINUX_MINT.md
-│   └── BUILD_AND_INSTALL.md
-└── app/
-    ├── build.gradle.kts
-    ├── proguard-rules.pro
-    └── src/
-        ├── main/
-        │   ├── AndroidManifest.xml
-        │   ├── java/com/storeprice/app/
-        │   │   ├── MainActivity.kt
-        │   │   ├── core/PriceFormatter.kt
-        │   │   └── ui/StorePriceApp.kt + ui/theme/
-        │   └── res/ (strings, theme, adaptive icon)
-        └── test/java/com/storeprice/app/core/PriceFormatterTest.kt
+app/src/test/java/com/storeprice/app
+├── MainActivitySmokeTest.kt
+├── core/ (PriceFormatter, SearchText, DateTimeFormat)
+├── data/repository/ (Room CRUD/search/persistence)
+├── domain/validation/
+├── ui/product/ (editor ViewModel)
+└── testutil/MainDispatcherRule.kt
 ```
 
-Один модуль `:app` достаточен для MVP. Дробление на Gradle-модули вводить только при реальной необходимости.
-
-## 6. Технологические решения
+## 7. Технологические решения
 
 | Область | Решение | Статус |
 |---|---|---|
 | Язык | Kotlin 2.0.21 | работает |
 | UI | Jetpack Compose, Material 3, Compose BOM 2024.12.01 | работает |
+| Навигация | Navigation Compose 2.8.5 | работает |
 | Сборка | AGP 8.7.3, Gradle 8.9, JDK 17, Kotlin DSL, version catalog | работает |
 | minSdk / targetSdk / compileSdk | 26 / 35 / 35 | работает |
-| Локальная БД | Room | план (этап 2) |
+| Локальная БД | Room 2.6.1 + KSP 2.0.21-1.0.28 | работает |
+| Тесты | JUnit 4, Robolectric 4.14.1, coroutines-test | работает |
 | Камера | CameraX + ML Kit Barcode Scanning | план (этап 3) |
 | Backend | Supabase Auth/Postgres/Realtime/RLS | план (этап 4) |
 | Синхронизация | Repository + WorkManager + инкрементальный sync | план (этап 5) |
 | Push | FCM + серверная Edge Function | план (этап 6) |
 
-Версии зафиксированы в `gradle/libs.versions.toml`. Обновление версий — отдельная задача с повторной сборкой и тестами; автоматически «на лету» зависимости не обновляются.
+Версии зафиксированы в `gradle/libs.versions.toml`. Lint сообщает о более новых версиях; обновление — отдельная задача с повторной сборкой и тестами.
 
-## 7. Границы безопасности
+## 8. Границы безопасности
 
 - В APK допустим только публичный Supabase anon/publishable key.
 - Service Role key, Firebase service account, FCM server key — только в Supabase Secrets / защищённом окружении.
 - RLS обязательна для всех таблиц; клиент не может выдать себе `admin`.
-- История цен и проверка конкурентных изменений (`version`) выполняются на сервере.
+- История цен и проверка конкурентных изменений (`version`) будут выполняться на сервере.
 - Локальная БД может содержать каталог, но не серверные секреты.
-- Идентификатор устройства случаен и не является аппаратным идентификатором.
+- Идентификатор устройства будет случайным и не аппаратным.
 
-## 8. Открытые архитектурные решения
+## 9. Открытые архитектурные решения
 
-Будут приняты на соответствующих этапах после проверки совместимости:
+1. Миграции Room при изменении схемы (этап 3+).
+2. Supabase Kotlin SDK или Retrofit + REST — этап 4.
+3. Стратегия инкрементальной синхронизации: `updated_at` + `version` или журнал изменений — этап 5.
+4. Разрешение конфликтов между локальной и серверной версией — этап 5.
+5. Схема очереди push-событий и защита от дублей — этап 6.
+6. Формат CSV и правило сопоставления штрихкодов при импорте — этап 7.
 
-1. Supabase Kotlin SDK или Retrofit + REST — этап 4.
-2. Стратегия инкрементальной синхронизации: `updated_at` + `version` или отдельный журнал изменений — этап 5.
-3. Схема очереди push-событий и защита от дублей — этап 6.
-4. Формат CSV и правило сопоставления штрихкодов при импорте — этап 7.
+## 10. Тестирование
 
-## 9. Тестирование
+Фактически выполнено на этапе 2:
 
-- Unit-тесты бизнес-логики и форматирования — JVM, выполняются без устройства.
-- Тесты Room — instrumented или Robolectric, решение на этапе 2.
-- UI-тесты Compose — при появлении стабильного экрана и доступного эмулятора/устройства.
-- Интеграционные проверки Supabase/FCM — только при наличии реального проекта и секретов; ограничения фиксировать явно.
+- unit-тесты валидации, нормализации, форматирования цены/даты;
+- Robolectric-тесты Room: CRUD, дубликаты, мягкое удаление, поиск и приоритеты, 5 000 товаров, сохранение после закрытия/открытия БД;
+- ViewModel-тест формы: валидация, сохранение, дубликат, загрузка и отсутствие товара;
+- smoke-тест запуска `MainActivity`;
+- ручная проверка основных сценариев на эмуляторе Android 15 (установка, каталог, карточка, поиск, дубликат, редактирование, удаление).
+
+Не выполнено: instrumented-тесты на устройстве, Compose UI-тесты, проверка на реальном телефоне, проверка камеры, Supabase и FCM. Подробности — `docs/TESTING.md`.

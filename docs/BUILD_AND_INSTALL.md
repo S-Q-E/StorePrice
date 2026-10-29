@@ -69,6 +69,20 @@ adb uninstall com.storeprice.app
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
+## Запуск на эмуляторе
+
+В текущем окружении установлены эмулятор 37.2.12 и system image Android 15 `system-images;android-35;default;x86_64`, создан AVD `storeprice_test`.
+
+```bash
+source scripts/android-env.sh
+"$ANDROID_HOME/emulator/emulator" -avd storeprice_test -no-audio -gpu swiftshader_indirect &
+adb wait-for-device
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n com.storeprice.app/.MainActivity
+```
+
+Для сервера без экрана добавьте `-no-window`. Эмулятор использует программную графику и работает медленнее телефона; для проверки камеры он не подходит.
+
 ## Установка без ADB
 
 1. Скопировать `app-debug.apk` на телефон (USB-хранилище, облако, мессенджер).
@@ -80,7 +94,7 @@ APK подписан debug-ключом и предназначен только
 
 ## Ограничение текущего окружения
 
-На момент этапа 0 телефон не подключён (`adb devices` пуст), эмулятор не установлен. Поэтому APK собран и проверен как файл, но **не устанавливался и не запускался на устройстве**. Это нужно сделать при появлении телефона или эмулятора.
+Реальный телефон не подключён (`adb devices` показывает только эмулятор `emulator-5554`). Финальный debug APK установлен и запущен на эмуляторе Android 15 (AVD `storeprice_test`), основные сценарии каталога проверены вручную. Камера, конкретный экран телефона и реальная производительность не проверены. Для этапа 3 нужен физический телефон.
 
 ## Release-сборка
 
