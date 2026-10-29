@@ -1,0 +1,25 @@
+# Gradle and Android build output
+.gradle/
+build/
+**/build/
+local.properties
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Signing and secrets
+*.jks
+*.keystore
+.env
+.env.*
+!.env.example
+secrets.properties
+google-services.json
+
+# OS and editor noise
+.DS_Store
+*.swp

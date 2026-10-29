@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">StorePrice</string>
+    <string name="stage_label">Этап 0</string>
+    <string name="stage_title">Базовая сборка готова</string>
+    <string name="stage_description">Минимальное нативное приложение на Kotlin и Jetpack Compose. Каталог товаров, сканер, Supabase и уведомления будут добавлены на следующих этапах.</string>
+    <string name="example_price_title">Пример форматирования цены</string>
+    <string name="next_step_title">Следующий этап</string>
+    <string name="next_step_description">Локальный каталог на Room, CRUD и поиск.</string>
+</resources>
