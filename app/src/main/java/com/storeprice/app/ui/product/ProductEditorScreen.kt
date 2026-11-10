@@ -52,10 +52,12 @@ fun ProductEditorScreen(
     onBack: () -> Unit,
     onSaved: (String) -> Unit,
     modifier: Modifier = Modifier,
+    initialBarcode: String? = null,
     viewModel: ProductEditorViewModel = viewModel(
         factory = ProductEditorViewModel.factory(
             repository = rememberProductRepository(),
             productId = productId,
+            initialBarcode = initialBarcode,
         ),
     ),
 ) {

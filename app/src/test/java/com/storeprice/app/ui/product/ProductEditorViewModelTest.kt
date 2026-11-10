@@ -70,6 +70,26 @@ class ProductEditorViewModelTest {
     }
 
     @Test
+    fun `scanned barcode is prefilled for a new product`() = runTest {
+        val repository = FakeProductRepository(
+            saveResult = SaveProductResult.Success("new-id"),
+        )
+        val viewModel = ProductEditorViewModel(
+            repository = repository,
+            productId = null,
+            initialBarcode = " 00123 ",
+        )
+
+        assertEquals("00123", viewModel.uiState.value.barcode)
+        viewModel.onNameChange("Молоко")
+        viewModel.onPriceChange("100")
+        viewModel.save()
+
+        assertTrue(viewModel.uiState.value.saved)
+        assertEquals("00123", repository.lastSave?.barcode)
+    }
+
+    @Test
     fun `existing product is loaded into the form`() = runTest {
         val product = Product(
             id = "existing-id",
@@ -112,6 +132,8 @@ class ProductEditorViewModelTest {
         override fun observeProducts(query: String): Flow<List<Product>> = flowOf(emptyList())
 
         override fun observeProduct(id: String): Flow<Product?> = flowOf(product)
+
+        override suspend fun findActiveByBarcode(barcode: String): Product? = product
 
         override suspend fun save(
             id: String?,

@@ -12,6 +12,23 @@
     <string name="no_barcode">Без штрихкода</string>
     <string name="barcode_value">Штрихкод: %1$s</string>
 
+    <string name="scan_barcode">Сканировать штрихкод</string>
+    <string name="scanner_title">Сканер</string>
+    <string name="scanner_close">Закрыть сканер</string>
+    <string name="scanner_instruction">Наведите камеру на штрихкод</string>
+    <string name="scanner_processing">Ищем товар в каталоге…</string>
+    <string name="scanner_lookup_error">Не удалось проверить каталог. Попробуйте ещё раз.</string>
+    <string name="scanner_retry">Повторить</string>
+    <string name="scanner_permission_title">Нужен доступ к камере</string>
+    <string name="scanner_permission_message">Разрешите приложению использовать камеру, чтобы сканировать штрихкоды. Сканирование выполняется на устройстве.</string>
+    <string name="scanner_permission_grant">Разрешить</string>
+    <string name="scanner_permission_settings">Настройки</string>
+    <string name="scanner_camera_unavailable_title">Камера не найдена</string>
+    <string name="scanner_camera_unavailable_message">На этом устройстве нет доступной камеры. Добавьте товар вручную.</string>
+    <string name="scanner_camera_error_title">Не удалось запустить камеру</string>
+    <string name="scanner_camera_error_message">Закройте другие приложения, использующие камеру, и попробуйте снова.</string>
+    <string name="scanner_back_to_catalog">Вернуться в каталог</string>
+
     <string name="empty_catalog_title">Каталог пуст</string>
     <string name="empty_catalog_description">Добавьте первый товар — он сохранится на этом устройстве.</string>
     <string name="empty_search_title">Ничего не найдено</string>

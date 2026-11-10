@@ -21,6 +21,15 @@ sealed interface SaveProductResult {
 interface ProductRepository {
     fun observeProducts(query: String): Flow<List<Product>>
     fun observeProduct(id: String): Flow<Product?>
+
+    /**
+     * Finds an active product by an exact barcode.
+     *
+     * The lookup ignores case, trims the scanned value and never returns soft-deleted
+     * products, so the scanner can reuse a barcode that was previously deleted.
+     */
+    suspend fun findActiveByBarcode(barcode: String): Product?
+
     suspend fun save(
         id: String?,
         name: String,
@@ -60,6 +69,12 @@ class RoomProductRepository(
 
     override fun observeProduct(id: String): Flow<Product?> =
         dao.observeById(id).map { it?.toDomain() }
+
+    override suspend fun findActiveByBarcode(barcode: String): Product? {
+        val cleanBarcode = barcode.trim().takeIf { it.isNotEmpty() } ?: return null
+        if (cleanBarcode.length > ProductValidator.MAX_BARCODE_LENGTH) return null
+        return dao.findActiveByBarcode(cleanBarcode.lowercase(Locale.ROOT))?.toDomain()
+    }
 
     override suspend fun save(
         id: String?,

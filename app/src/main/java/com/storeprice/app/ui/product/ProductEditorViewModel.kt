@@ -40,10 +40,14 @@ data class ProductEditorUiState(
 class ProductEditorViewModel(
     private val repository: ProductRepository,
     private val productId: String?,
+    initialBarcode: String? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
-        ProductEditorUiState(isLoading = productId != null),
+        ProductEditorUiState(
+            isLoading = productId != null,
+            barcode = if (productId == null) initialBarcode?.trim().orEmpty() else "",
+        ),
     )
     val uiState: StateFlow<ProductEditorUiState> = _uiState.asStateFlow()
 
@@ -151,8 +155,9 @@ class ProductEditorViewModel(
         fun factory(
             repository: ProductRepository,
             productId: String?,
+            initialBarcode: String? = null,
         ): ViewModelProvider.Factory = viewModelFactory {
-            initializer { ProductEditorViewModel(repository, productId) }
+            initializer { ProductEditorViewModel(repository, productId, initialBarcode) }
         }
     }
 }

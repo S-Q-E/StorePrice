@@ -49,6 +49,16 @@ interface ProductDao {
         SELECT * FROM products
         WHERE is_deleted = 0
           AND barcode_normalized = :barcode
+        LIMIT 1
+        """,
+    )
+    suspend fun findActiveByBarcode(barcode: String): ProductEntity?
+
+    @Query(
+        """
+        SELECT * FROM products
+        WHERE is_deleted = 0
+          AND barcode_normalized = :barcode
           AND id != :excludeId
         LIMIT 1
         """,

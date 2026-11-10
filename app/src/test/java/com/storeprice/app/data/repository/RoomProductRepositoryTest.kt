@@ -88,6 +88,34 @@ class RoomProductRepositoryTest {
     }
 
     @Test
+    fun `active product can be found by scanned barcode ignoring case and spaces`() = runBlocking {
+        val id = addProduct(name = "Молоко", barcode = "ABC-123")
+
+        val product = requireNotNull(repository.findActiveByBarcode("  abc-123 "))
+
+        assertEquals(id, product.id)
+        assertEquals("ABC-123", product.barcode)
+    }
+
+    @Test
+    fun `scanner lookup does not return deleted product`() = runBlocking {
+        val id = addProduct(name = "Старый", barcode = "001")
+
+        repository.delete(id)
+
+        assertNull(repository.findActiveByBarcode("001"))
+    }
+
+    @Test
+    fun `scanner lookup returns null for blank unknown and too long barcode`() = runBlocking {
+        addProduct(name = "Молоко", barcode = "001")
+
+        assertNull(repository.findActiveByBarcode("   "))
+        assertNull(repository.findActiveByBarcode("002"))
+        assertNull(repository.findActiveByBarcode("1".repeat(65)))
+    }
+
+    @Test
     fun `multiple products without barcode are allowed`() = runBlocking {
         addProduct(name = "Первый", barcode = null)
         addProduct(name = "Второй", barcode = "   ")

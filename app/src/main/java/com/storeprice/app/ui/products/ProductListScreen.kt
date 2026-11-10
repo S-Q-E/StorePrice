@@ -36,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -53,6 +54,7 @@ import com.storeprice.app.ui.rememberProductRepository
 fun ProductListScreen(
     onAddProduct: () -> Unit,
     onProductClick: (String) -> Unit,
+    onScanBarcode: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ProductListViewModel = viewModel(
         factory = ProductListViewModel.factory(rememberProductRepository()),
@@ -63,7 +65,17 @@ fun ProductListScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
-            TopAppBar(title = { Text(stringResource(R.string.catalog_title)) })
+            TopAppBar(
+                title = { Text(stringResource(R.string.catalog_title)) },
+                actions = {
+                    IconButton(onClick = onScanBarcode) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_barcode_scan),
+                            contentDescription = stringResource(R.string.scan_barcode),
+                        )
+                    }
+                },
+            )
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
