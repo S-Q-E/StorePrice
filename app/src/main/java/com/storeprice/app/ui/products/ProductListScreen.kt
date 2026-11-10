@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
@@ -22,8 +24,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +39,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -46,21 +54,26 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.storeprice.app.R
 import com.storeprice.app.core.formatKzt
+import com.storeprice.app.domain.model.EmployeeProfile
+import com.storeprice.app.domain.model.EmployeeRole
 import com.storeprice.app.domain.model.Product
 import com.storeprice.app.ui.rememberProductRepository
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProductListScreen(
+    employee: EmployeeProfile,
     onAddProduct: () -> Unit,
     onProductClick: (String) -> Unit,
     onScanBarcode: () -> Unit,
+    onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ProductListViewModel = viewModel(
         factory = ProductListViewModel.factory(rememberProductRepository()),
     ),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var accountMenuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -73,6 +86,53 @@ fun ProductListScreen(
                             painter = painterResource(R.drawable.ic_barcode_scan),
                             contentDescription = stringResource(R.string.scan_barcode),
                         )
+                    }
+                    Box {
+                        IconButton(onClick = { accountMenuExpanded = true }) {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = stringResource(R.string.auth_menu_account),
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = accountMenuExpanded,
+                            onDismissRequest = { accountMenuExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(employee.displayName)
+                                        Text(
+                                            text = stringResource(
+                                                if (employee.role == EmployeeRole.ADMIN) {
+                                                    R.string.auth_role_admin
+                                                } else {
+                                                    R.string.auth_role_employee
+                                                },
+                                            ),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                },
+                                onClick = {},
+                                enabled = false,
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.auth_sign_out)) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = {
+                                    accountMenuExpanded = false
+                                    onSignOut()
+                                },
+                            )
+                        }
                     }
                 },
             )

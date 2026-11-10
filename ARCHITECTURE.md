@@ -2,7 +2,7 @@
 
 ## 1. Статус документа
 
-Описана целевая архитектура из ТЗ, фактически реализованный локальный каталог этапа 2, сканер этапа 3 и подготовленная серверная схема Supabase этапа 4. Компоненты, отмеченные «план», ещё не реализованы.
+Описана целевая архитектура из ТЗ, фактически реализованный локальный каталог этапа 2, сканер этапа 3, серверная схема Supabase и Android-вход этапа 4. Компоненты, отмеченные «план», ещё не реализованы.
 
 ## 2. Целевая схема
 
@@ -17,7 +17,7 @@
 │        ▼                                                               │
 │  Repository                                                            │
 │    ├── Room (локальный источник для UI, офлайн-кэш, поиск)             │
-│    ├── Supabase SDK/Retrofit (auth, CRUD, инкрементальная синхронизация)│
+│    ├── supabase-kt (Auth сейчас; PostgREST/синхронизация — далее)       │
 │    ├── Realtime (обновления при активном приложении)                   │
 │    └── WorkManager (повторы, фоновая синхронизация)                   │
 │                                                                        │
@@ -114,6 +114,39 @@ ProductRepository → Room ProductDao (active only)
 - длина штрихкода ≤ 64;
 - дубликат активного штрихкода проверяется репозиторием без учёта регистра.
 
+### Вход и сессия (этап 4)
+
+```text
+LoginScreen
+    │ phone, password
+    ▼
+AuthViewModel
+    │ нормализация телефона, валидация
+    ▼
+AuthRepository (SupabaseAuthRepository)
+    │ signInWith(phone, password)
+    ▼
+supabase-kt Auth → GoTrue
+    │ access/refresh token
+    ▼
+SessionManager (private SharedPreferences)
+    │
+    ▼
+profiles (PostgREST, RLS) → Employee(role, is_active)
+    │
+    ├── активен → каталог
+    └── нет/ошибка → сообщение и выход
+```
+
+- Телефон нормализуется к E.164: казахстанские/российские форматы `8...`, `+7...`, 10 цифр; международный `+` сохраняется.
+- Вход — phone + password. Публичная регистрация в Supabase должна быть выключена; сотрудников создаёт администратор.
+- `AuthViewModel` — единая точка состояния входа: `Loading`, `SignedOut`, `SignedIn`, `SessionUnavailable`.
+- После входа и при восстановлении сессии клиент читает `public.profiles` текущего пользователя. Роль и `is_active` приходят с сервера, а не из клиентских настроек.
+- Неактивный/отсутствующий профиль очищает сессию. Ошибка сети при проверке профиля не разлогинивает молча, а показывает экран повтора и выхода.
+- Токены хранятся в приватных `SharedPreferences`; пароль не сохраняется. `allowBackup=false`, cloud backup и device transfer запрещены.
+- `supabase-kt` 3.0.0 выбран из-за совместимости с Kotlin 2.0.20; более новые версии требуют более новый Kotlin.
+- Каталог пока не использует Supabase: Room остаётся источником данных для UI.
+
 ## 4. Схема локальной БД (v1)
 
 Файл: `app/schemas/com.storeprice.app.data.local.StorePriceDatabase/1.json`.
@@ -164,30 +197,36 @@ ProductRepository → Room ProductDao (active only)
 - RLS включена на всех таблицах; `anon` не имеет прав; чтение каталога доступно только активным сотрудникам.
 - `audit_log` и `price_history` защищены от изменения обычными ролями; Service Role допустим только для обслуживания.
 
-На момент этапа 4 миграции проверены локально на PostgreSQL 17 с заглушками Auth, но не применены к живому Supabase. Android-клиент пока читает и пишет только Room.
+На момент этапа 4 миграции проверены локально на PostgreSQL 17 с заглушками Auth, но не применены к живому Supabase. Android-клиент уже использует Supabase Auth и PostgREST для профиля, но каталог пока читает и пишет только Room.
 
 ## 5. UI и навигация
 
 ```text
-products (каталог + поиск)
-├── scanner                   → CameraX + ML Kit
-│   ├── найденный товар       → product/{id}
-│   └── неизвестный код       → product/new?barcode={barcode}
-├── product/new[?barcode=…]   → форма создания / форма после сканера
-└── product/{id}              → карточка
-    └── product/{id}/edit     → форма редактирования
+StorePriceApp
+└── auth gate
+    ├── Loading
+    ├── LoginScreen             → phone + password
+    ├── SessionUnavailable      → повтор / выход
+    └── products (каталог + поиск)
+        ├── scanner                   → CameraX + ML Kit
+        │   ├── найденный товар       → product/{id}
+        │   └── неизвестный код       → product/new?barcode={barcode}
+        ├── product/new[?barcode=…]   → форма создания / форма после сканера
+        └── product/{id}              → карточка
+            └── product/{id}/edit     → форма редактирования
 ```
 
 Экраны:
 
-- **Каталог** — поиск, счётчик, локальный бейдж, список, пустые состояния, FAB добавления, кнопка сканера.
+- **Вход** — телефон, пароль, показ/скрытие пароля, локальная валидация, состояние загрузки, русские ошибки сервера.
+- **Каталог** — поиск, счётчик, локальный бейдж, список, пустые состояния, FAB добавления, кнопка сканера, меню аккаунта с именем/ролью и выходом.
 - **Карточка** — название, цена, штрихкод, время изменения, редактирование, удаление с подтверждением.
 - **Форма** — валидация полей, предпросмотр цены, ошибка дубликата штрихкода, сохранение; для нового товара может быть предзаполнен штрихкод.
 - **Сканер** — предпросмотр камеры, рамка, состояния разрешения/отсутствия камеры/ошибки, защита от повторного срабатывания.
 
 Удаление — логическое; после него карточка закрывается, товар исчезает из списка и поиска, штрихкод можно использовать снова.
 
-Интерфейс не показывает фиктивные сетевые статусы: на этапе 3 отображается честная метка «Локальный каталог», пока нет Supabase и синхронизации.
+Auth gate стоит перед каталогом: без активного профиля экраны товаров недоступны. Каталог показывает честную метку «Локальный каталог», потому что синхронизация с Supabase ещё не реализована.
 
 ## 6. Фактическая структура
 
@@ -198,23 +237,33 @@ com.storeprice.app
 ├── core/
 │   ├── PriceFormatter.kt
 │   ├── SearchText.kt
+│   ├── PhoneNumber.kt            # E.164-нормализация телефона
 │   └── DateTimeFormat.kt
 ├── data/
 │   ├── local/
 │   │   ├── ProductEntity.kt
 │   │   ├── ProductDao.kt
 │   │   └── StorePriceDatabase.kt
+│   ├── auth/
+│   │   ├── AuthRepository.kt
+│   │   ├── SupabaseAuthRepository.kt
+│   │   ├── MissingConfigAuthRepository.kt
+│   │   ├── SessionManager.kt
+│   │   └── SharedPreferencesSessionManager.kt
 │   ├── scanner/
 │   │   └── BarcodeAnalyzer.kt    # CameraX ImageAnalysis + ML Kit
 │   └── repository/
 │       └── ProductRepository.kt
 ├── domain/
+│   ├── auth/AuthModels.kt
 │   ├── model/Product.kt
+│   ├── model/Employee.kt
 │   └── validation/ProductValidator.kt
 └── ui/
-    ├── StorePriceApp.kt          # NavHost, маршруты и передача barcode
+    ├── StorePriceApp.kt          # auth gate, NavHost, маршруты
     ├── AppRepository.kt
     ├── theme/
+    ├── auth/                     # LoginScreen + AuthViewModel + SessionUnavailable
     ├── scanner/                  # ScannerScreen + ScannerViewModel
     ├── products/                 # ProductListScreen + ViewModel
     └── product/                  # detail/editor + ViewModel
@@ -225,11 +274,12 @@ com.storeprice.app
 ```text
 app/src/test/java/com/storeprice/app
 ├── MainActivitySmokeTest.kt
-├── core/ (PriceFormatter, SearchText, DateTimeFormat)
+├── core/ (PriceFormatter, SearchText, PhoneNumber, DateTimeFormat)
 ├── data/repository/ (Room CRUD/search/persistence, barcode lookup)
 ├── domain/validation/
 ├── ui/product/ (editor ViewModel)
 ├── ui/scanner/ (ScannerViewModel: result, duplicates, retry)
+├── ui/auth/ (AuthViewModel: validation, sign-in, logout)
 └── testutil/MainDispatcherRule.kt
 ```
 
@@ -245,7 +295,8 @@ app/src/test/java/com/storeprice/app
 | Локальная БД | Room 2.6.1 + KSP 2.0.21-1.0.28 | работает |
 | Тесты | JUnit 4, Robolectric 4.14.1, coroutines-test | работает |
 | Камера | CameraX 1.4.2 + ML Kit Barcode Scanning 17.3.0 | работает; основной сценарий проверен на телефоне |
-| Backend | Supabase Auth/Postgres/Realtime/RLS | SQL-миграции и RLS подготовлены; клиент не подключён |
+| Backend | Supabase Auth/Postgres/Realtime/RLS | SQL-миграции и RLS подготовлены; Auth подключён в Android; каталог ещё не подключён |
+| Android Auth | `supabase-kt` 3.0.0 (`auth-kt`, `postgrest-kt`), Ktor OkHttp 3.0.0-rc-1 | вход, сессия, профиль и выход реализованы; живой успешный вход не проверен |
 | Синхронизация | Repository + WorkManager + инкрементальный sync | план (этап 5) |
 | Push | FCM + серверная Edge Function | план (этап 6) |
 
@@ -259,28 +310,34 @@ app/src/test/java/com/storeprice/app
 - История цен и проверка конкурентных изменений (`version`) будут выполняться на сервере.
 - Локальная БД может содержать каталог, но не серверные секреты.
 - Идентификатор устройства будет случайным и не аппаратным.
-- Сканирование выполняется локальной моделью ML Kit. Зависимость ML Kit добавляет в объединённый manifest разрешения `INTERNET` и `ACCESS_NETWORK_STATE`; собственного сетевого кода на этапе 3 нет, но эти разрешения понадобятся для Supabase на этапе 4.
+- Access/refresh token хранятся в приватных `SharedPreferences`; пароль не сохраняется. `allowBackup=false`, cloud backup и device transfer запрещены. Отдельного шифрования токенов нет — это известное ограничение.
+- Публичные `SUPABASE_URL` и publishable key попадают в `BuildConfig` из игнорируемого `local.properties`; `service_role` в Android-модуль не добавляется.
+- Сканирование выполняется локальной моделью ML Kit. Зависимость ML Kit добавляет в объединённый manifest разрешения `INTERNET` и `ACCESS_NETWORK_STATE`; с этапа 4 приложение использует сеть для Supabase Auth и чтения профиля.
 
 ## 9. Открытые архитектурные решения
 
 1. Миграции Room при изменении схемы; на этапе 3 схема не менялась.
-2. Supabase Kotlin SDK или Retrofit + REST для Android-клиента — выбор перед реализацией входа.
-3. Стратегия инкрементальной синхронизации: `updated_at` + `version` или журнал изменений — этап 5.
-4. Разрешение конфликтов между локальной и серверной версией — этап 5.
-5. Схема очереди push-событий и защита от дублей — этап 6.
-6. Формат CSV и правило сопоставления штрихкодов при импорте — этап 7.
+2. Стратегия инкрементальной синхронизации: `updated_at` + `version` или журнал изменений — этап 5.
+3. Разрешение конфликтов между локальной и серверной версией — этап 5.
+4. Схема очереди push-событий и защита от дублей — этап 6.
+5. Формат CSV и правило сопоставления штрихкодов при импорте — этап 7.
+6. Отдельное шифрование сессии (EncryptedSharedPreferences/Keystore) — при повышении требований безопасности.
 
 ## 10. Тестирование
 
-Фактически выполнено на этапах 2–3:
+Фактически выполнено на этапах 2–4:
 
 - unit-тесты валидации, нормализации, форматирования цены/даты;
 - Robolectric-тесты Room: CRUD, дубликаты, мягкое удаление, поиск и приоритеты, 5 000 товаров, сохранение после закрытия/открытия БД, поиск активного товара по штрихкоду;
 - ViewModel-тесты формы: валидация, сохранение, дубликат, загрузка, отсутствие товара, предзаполнение штрихкода;
 - ViewModel-тесты сканера: найденный/неизвестный код, пустой код, блокировка повторных событий, повтор после ошибки;
+- тесты телефона: форматы `8...`, `+7...`, 10 цифр, международный номер, неверные значения;
+- ViewModel-тесты входа: валидация, нормализация, успех, ошибки, сброс ошибки, выход;
 - smoke-тест запуска `MainActivity`;
 - ручная проверка на эмуляторе Android 15: каталог, карточка, поиск, дубликат, редактирование, удаление; экран сканера, разрешение/отказ, предпросмотр камеры, освобождение камеры при выходе;
-- ручная проверка на физическом телефоне пользователем: распознавание штрихкодов, добавление товара и повторное открытие карточки;
-- SQL-миграции Supabase: локальный PostgreSQL 17 с заглушками Auth; проверены RLS, RPC, версии, история цены, аудит и права ролей.
+- ручная проверка входа на эмуляторе: экран, локальная ошибка формата, реальный ответ Supabase `phone_provider_disabled`;
+- ручная проверка на физическом телефоне пользователем: распознавание штрихкодов, добавление товара и повторное открытие карточки (APK этапа 3);
+- SQL-миграции Supabase: локальный PostgreSQL 17 с заглушками Auth; проверены RLS, RPC, версии, история цены, аудит и права ролей;
+- живой Supabase: Auth health 200, отсутствие `profiles` (`PGRST205`), `phone: false`, `disable_signup: false`.
 
-Не выполнено: instrumented-тесты на устройстве, Compose UI-тесты, полная матрица форматов и edge-case-сценарии камеры на телефоне, проверка миграций и RLS в живом Supabase, Android-авторизация, синхронизация и FCM. Подробности — `docs/TESTING.md`.
+Не выполнено: instrumented-тесты на устройстве, Compose UI-тесты, полная матрица форматов и edge-case-сценарии камеры на телефоне, применение миграций и проверка RLS с реальным JWT в живом Supabase, успешный вход/деактивация/refresh на живом проекте, синхронизация и FCM. Подробности — `docs/TESTING.md`.

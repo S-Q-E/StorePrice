@@ -2,6 +2,39 @@
 <resources>
     <string name="app_name">StorePrice</string>
 
+    <string name="auth_title">Вход для сотрудников</string>
+    <string name="auth_subtitle">Общий каталог магазина с ценами в тенге</string>
+    <string name="auth_phone_label">Номер телефона</string>
+    <string name="auth_phone_placeholder">+7 700 123 45 67</string>
+    <string name="auth_phone_hint">Можно вводить с пробелами, скобками и дефисами</string>
+    <string name="auth_password_label">Пароль</string>
+    <string name="auth_password_show">Показать</string>
+    <string name="auth_password_hide">Скрыть</string>
+    <string name="auth_sign_in">Войти</string>
+    <string name="auth_signing_in">Вход…</string>
+    <string name="auth_admin_note">Доступ выдаёт администратор. Самостоятельная регистрация отключена.</string>
+    <string name="auth_checking_session">Проверка сессии…</string>
+    <string name="auth_retry">Повторить</string>
+    <string name="auth_sign_out">Выйти</string>
+    <string name="auth_menu_account">Аккаунт</string>
+    <string name="auth_role_admin">Администратор</string>
+    <string name="auth_role_employee">Сотрудник</string>
+    <string name="auth_session_unavailable_title">Нет связи с сервером</string>
+    <string name="auth_session_unavailable_network">Не удалось проверить профиль. Проверьте интернет и повторите.</string>
+    <string name="auth_session_unavailable_server">Сервер временно недоступен или ещё не настроен. Повторите позже или обратитесь к администратору.</string>
+    <string name="auth_error_invalid_phone">Введите номер телефона в формате +7 700 123 45 67</string>
+    <string name="auth_error_password_required">Введите пароль</string>
+    <string name="auth_error_invalid_credentials">Неверный номер телефона или пароль</string>
+    <string name="auth_error_account_inactive">Учётная запись неактивна. Обратитесь к администратору.</string>
+    <string name="auth_error_account_not_found">Профиль сотрудника не найден. Обратитесь к администратору.</string>
+    <string name="auth_error_account_not_confirmed">Телефон не подтверждён. Обратитесь к администратору.</string>
+    <string name="auth_error_session_expired">Сессия истекла. Войдите снова.</string>
+    <string name="auth_error_phone_disabled">Вход по телефону пока отключён на сервере. Обратитесь к администратору.</string>
+    <string name="auth_error_configuration">Приложение не настроено: отсутствуют SUPABASE_URL и публичный ключ.</string>
+    <string name="auth_error_too_many_attempts">Слишком много попыток входа. Подождите немного и повторите.</string>
+    <string name="auth_error_network">Нет соединения с сервером. Проверьте интернет и повторите.</string>
+    <string name="auth_error_server">Сервер временно недоступен или ещё не настроен. Повторите позже.</string>
+
     <string name="catalog_title">Товары</string>
     <string name="product_detail_title">Товар</string>
     <string name="catalog_local_badge">Локальный каталог</string>

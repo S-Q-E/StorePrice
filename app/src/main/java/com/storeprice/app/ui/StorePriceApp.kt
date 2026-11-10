@@ -2,12 +2,21 @@ package com.storeprice.app.ui
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.storeprice.app.domain.auth.AuthState
+import com.storeprice.app.domain.model.EmployeeProfile
+import com.storeprice.app.ui.auth.AuthLoadingScreen
+import com.storeprice.app.ui.auth.AuthViewModel
+import com.storeprice.app.ui.auth.LoginScreen
+import com.storeprice.app.ui.auth.SessionUnavailableScreen
 import com.storeprice.app.ui.product.ProductDetailScreen
 import com.storeprice.app.ui.product.ProductEditorScreen
 import com.storeprice.app.ui.products.ProductListScreen
@@ -33,6 +42,43 @@ private object Routes {
 
 @Composable
 fun StorePriceApp(modifier: Modifier = Modifier) {
+    val authViewModel: AuthViewModel = viewModel(
+        factory = AuthViewModel.factory(rememberAuthRepository()),
+    )
+    val uiState by authViewModel.uiState.collectAsStateWithLifecycle()
+
+    when (val authState = uiState.authState) {
+        AuthState.Initializing -> AuthLoadingScreen(modifier = modifier)
+
+        is AuthState.SignedOut -> LoginScreen(
+            uiState = uiState,
+            onPhoneChange = authViewModel::onPhoneChange,
+            onPasswordChange = authViewModel::onPasswordChange,
+            onSignIn = authViewModel::signIn,
+            modifier = modifier,
+        )
+
+        is AuthState.SignedIn -> CatalogApp(
+            employee = authState.employee,
+            onSignOut = authViewModel::signOut,
+            modifier = modifier,
+        )
+
+        is AuthState.Unavailable -> SessionUnavailableScreen(
+            reason = authState.reason,
+            onRetry = authViewModel::retrySession,
+            onSignOut = authViewModel::signOut,
+            modifier = modifier,
+        )
+    }
+}
+
+@Composable
+private fun CatalogApp(
+    employee: EmployeeProfile,
+    onSignOut: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val navController = rememberNavController()
 
     NavHost(
@@ -42,11 +88,13 @@ fun StorePriceApp(modifier: Modifier = Modifier) {
     ) {
         composable(Routes.PRODUCTS) {
             ProductListScreen(
+                employee = employee,
                 onAddProduct = { navController.navigate(Routes.newProduct()) },
                 onProductClick = { id ->
                     navController.navigate(Routes.productDetail(id))
                 },
                 onScanBarcode = { navController.navigate(Routes.SCANNER) },
+                onSignOut = onSignOut,
             )
         }
 
