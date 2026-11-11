@@ -35,6 +35,7 @@ sealed interface ProductValidationResult {
 object ProductValidator {
 
     const val MAX_BARCODE_LENGTH = 64
+    const val MAX_PRICE_KZT = 100_000_000L
 
     fun validate(
         nameInput: String,
@@ -45,10 +46,11 @@ object ProductValidator {
         val nameError = if (name.isBlank()) ProductFieldError.NAME_REQUIRED else null
 
         val priceDigits = priceInput.filterNot { it.isWhitespace() || it == '\u00A0' }
+        val price = priceDigits.toLongOrNull()
         val priceError = when {
             priceDigits.isEmpty() -> ProductFieldError.PRICE_REQUIRED
-            !priceDigits.all(Char::isDigit) -> ProductFieldError.PRICE_INVALID
-            priceDigits.toLongOrNull() == null -> ProductFieldError.PRICE_TOO_LARGE
+            !priceDigits.all { it in '0'..'9' } -> ProductFieldError.PRICE_INVALID
+            price == null || price > MAX_PRICE_KZT -> ProductFieldError.PRICE_TOO_LARGE
             else -> null
         }
 
@@ -70,7 +72,7 @@ object ProductValidator {
         return ProductValidationResult.Valid(
             ProductDraft(
                 name = name,
-                priceKzt = requireNotNull(priceDigits.toLongOrNull()),
+                priceKzt = requireNotNull(price),
                 barcode = barcode,
             ),
         )

@@ -55,6 +55,39 @@ class ProductValidatorTest {
     }
 
     @Test
+    fun `maximum price is allowed`() {
+        val result = ProductValidator.validate(
+            "Молоко",
+            "100000000",
+            "",
+        ) as ProductValidationResult.Valid
+
+        assertEquals(ProductValidator.MAX_PRICE_KZT, result.draft.priceKzt)
+    }
+
+    @Test
+    fun `price above maximum is rejected`() {
+        val result = ProductValidator.validate(
+            "Молоко",
+            "100000001",
+            "",
+        ) as ProductValidationResult.Invalid
+
+        assertEquals(ProductFieldError.PRICE_TOO_LARGE, result.priceError)
+    }
+
+    @Test
+    fun `arabic digits in price are rejected`() {
+        val result = ProductValidator.validate(
+            "Молоко",
+            "٣٥٠",
+            "",
+        ) as ProductValidationResult.Invalid
+
+        assertEquals(ProductFieldError.PRICE_INVALID, result.priceError)
+    }
+
+    @Test
     fun `zero price is allowed`() {
         val result = ProductValidator.validate("Акция", "0", "") as ProductValidationResult.Valid
         assertEquals(0L, result.draft.priceKzt)

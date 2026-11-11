@@ -35,4 +35,9 @@ class PhoneNumberTest {
         assertNull(PhoneNumber.normalize("+7 (700) abc"))
         assertNull(PhoneNumber.normalize("1234567890123456"))
     }
+
+    @Test
+    fun `arabic digits are not treated as phone digits`() {
+        assertNull(PhoneNumber.normalize("٧٧٠٠١٢٣٤٥٦٧"))
+    }
 }

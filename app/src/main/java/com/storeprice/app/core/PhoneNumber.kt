@@ -15,7 +15,7 @@ object PhoneNumber {
         val trimmed = raw.trim()
         if (trimmed.isEmpty()) return null
 
-        val digits = trimmed.filter(Char::isDigit)
+        val digits = trimmed.filter { it in '0'..'9' }
         if (digits.length !in MIN_DIGITS..MAX_DIGITS) return null
 
         if (trimmed.startsWith("+")) return "+$digits"

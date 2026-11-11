@@ -98,7 +98,7 @@
     <string name="error_name_required">Введите название товара</string>
     <string name="error_price_required">Введите цену</string>
     <string name="error_price_invalid">Цена должна быть целым неотрицательным числом</string>
-    <string name="error_price_too_large">Слишком большая цена</string>
+    <string name="error_price_too_large">Цена не должна превышать 100 000 000 ₸</string>
     <string name="error_barcode_too_long">Штрихкод слишком длинный</string>
     <string name="error_barcode_duplicate">Такой штрихкод уже есть у другого товара</string>
     <string name="error_save_failed">Не удалось сохранить товар. Попробуйте ещё раз.</string>
