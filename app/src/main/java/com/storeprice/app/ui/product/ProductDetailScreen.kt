@@ -47,6 +47,27 @@ import com.storeprice.app.core.formatTimestamp
 import com.storeprice.app.domain.model.Product
 import com.storeprice.app.ui.rememberProductRepository
 
+/**
+ * What the detail screen should render for the current state.
+ *
+ * A missing [ProductDetailUiState.product] is only shown as "not found" when no
+ * delete is in progress or completed. Room can emit `null` before [delete] returns,
+ * so that window must render a neutral placeholder while navigation is pending.
+ */
+internal enum class ProductDetailContent {
+    Pending,
+    NotFound,
+    Details,
+}
+
+internal fun ProductDetailUiState.content(): ProductDetailContent = when {
+    deleted -> ProductDetailContent.Pending
+    isDeleting && product == null -> ProductDetailContent.Pending
+    isLoading -> ProductDetailContent.Pending
+    product == null -> ProductDetailContent.NotFound
+    else -> ProductDetailContent.Details
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProductDetailScreen(
@@ -96,8 +117,8 @@ fun ProductDetailScreen(
             )
         },
     ) { innerPadding ->
-        when {
-            uiState.isLoading -> Box(
+        when (uiState.content()) {
+            ProductDetailContent.Pending -> Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
@@ -106,14 +127,14 @@ fun ProductDetailScreen(
                 CircularProgressIndicator()
             }
 
-            uiState.product == null -> ProductNotFound(
+            ProductDetailContent.NotFound -> ProductNotFound(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
                 onBack = onBack,
             )
 
-            else -> ProductDetails(
+            ProductDetailContent.Details -> ProductDetails(
                 product = requireNotNull(uiState.product),
                 isDeleting = uiState.isDeleting,
                 deleteFailed = uiState.deleteFailed,
