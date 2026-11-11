@@ -52,6 +52,8 @@ Debug APK собирается, 90 тестов проходят, lint без о
 
 Версии зафиксированы в `gradle/libs.versions.toml`. Lint сообщает о доступных более новых версиях; обновление не выполнялось, чтобы не менять проверенный toolchain без отдельной задачи.
 
+Ktor оставлен на `3.0.0-rc-1`: `supabase-kt` 3.0.0 транзитивно требует именно эту версию. Проверка `./gradlew :app:dependencies --configuration releaseRuntimeClasspath` показывает `ktor-client-core:3.0.0-rc-1`. Принудительная замена на стабильную `3.0.0` создаёт конфликт версий: Gradle поднимает часть модулей до `3.0.0`, но `ktor-client-content-negotiation` и `ktor-serialization*` остаются на `3.0.0-rc-1`. Сборка и тесты с такой смешанной схемой проходят, но изменение откатано, чтобы не оставлять несовместимый набор Ktor-модулей. Полный переход на стабильную версию требует согласованного обновления всех Ktor-модулей через BOM или constraints — это отдельная задача.
+
 ## Что работает
 
 ### Каталог (этап 2)
@@ -288,8 +290,8 @@ APK устанавливается командой `adb install -r` на AVD `s
 ## APK
 
 - Путь: `app/build/outputs/apk/debug/app-debug.apk`
-- Размер: **38 444 463 байта** (≈ 36,7 МиБ)
-- SHA-256: `e23f8a74f1d7b01bc0fe3bc6863c7520b454637bea8361ce2fa942e6f4ac6dd1`
+- Размер: **37 635 861 байт** (≈ 35,9 МиБ)
+- SHA-256: `11a8bc3f06942e10f01434e87e633de11f07b5a4511ea274e93bd65a22777a53`
 - Package: `com.storeprice.app`, versionName `0.4.0`, versionCode `4`
 - minSdk 26, targetSdk 35, compileSdk 35
 - Label: `StorePrice`
