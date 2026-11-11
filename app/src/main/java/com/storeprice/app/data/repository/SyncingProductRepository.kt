@@ -120,7 +120,7 @@ internal class SyncingProductRepository(
             // Products created before the shared catalog was connected have no
             // server row yet. Upload them once instead of silently dropping the
             // local catalog; server rows always win when a barcode already exists.
-            var uploadedLegacyProduct = false
+            var refreshSnapshot = false
             for (item in dao.getAll()) {
                 if (item.isDeleted || item.id in serverIds) continue
                 val normalizedBarcode = item.barcode?.lowercase(Locale.ROOT)
@@ -133,17 +133,20 @@ internal class SyncingProductRepository(
                         barcode = item.barcode,
                     )
                 } catch (_: ProductRemoteException.DuplicateBarcode) {
+                    // Another device may have taken the barcode after our
+                    // snapshot; refresh so the server row replaces the legacy one.
+                    refreshSnapshot = true
                     continue
                 }
 
-                uploadedLegacyProduct = true
+                refreshSnapshot = true
                 database.withTransaction {
                     dao.deleteById(item.id)
                     dao.upsert(created.toEntity())
                 }
             }
 
-            val snapshot = if (uploadedLegacyProduct) remote.fetchAll() else serverProducts
+            val snapshot = if (refreshSnapshot) remote.fetchAll() else serverProducts
             database.withTransaction {
                 dao.deleteAll()
                 dao.insertAll(snapshot.map(RemoteProduct::toEntity))

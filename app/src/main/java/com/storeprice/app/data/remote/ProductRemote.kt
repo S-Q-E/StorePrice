@@ -205,21 +205,8 @@ internal class SupabaseProductRemote(
         }
     }
 
-    private fun RestException.toRemoteException(): ProductRemoteException = when {
-        error == SQLSTATE_UNIQUE_VIOLATION || statusCode == 409 ->
-            ProductRemoteException.DuplicateBarcode
-
-        error == SQLSTATE_SERIALIZATION_FAILURE ->
-            ProductRemoteException.VersionConflict
-
-        error == SQLSTATE_NO_DATA_FOUND || statusCode == 404 ->
-            ProductRemoteException.NotFound
-
-        statusCode == 401 || statusCode == 403 ->
-            ProductRemoteException.Unauthorized
-
-        else -> ProductRemoteException.ServerError
-    }
+    private fun RestException.toRemoteException(): ProductRemoteException =
+        toProductRemoteException()
 
     @Serializable
     private data class SupabaseProductRow(
@@ -253,9 +240,40 @@ internal class SupabaseProductRemote(
         const val RPC_CREATE_PRODUCT = "create_product"
         const val RPC_UPDATE_PRODUCT = "update_product"
         const val RPC_SOFT_DELETE_PRODUCT = "soft_delete_product"
-        const val SQLSTATE_UNIQUE_VIOLATION = "23505"
-        const val SQLSTATE_SERIALIZATION_FAILURE = "40001"
-        const val SQLSTATE_NO_DATA_FOUND = "P0002"
         const val PAGE_SIZE = 1_000L
+    }
+}
+
+/**
+ * Maps PostgREST errors to the repository contract.
+ *
+ * supabase-kt 3.0.0 exposes the server message in [RestException.error] but
+ * drops the SQLSTATE `code` from the response, so classification uses the
+ * message, details, and HTTP status together.
+ */
+internal fun RestException.toProductRemoteException(): ProductRemoteException {
+    val text = listOfNotNull(error, description).joinToString(" ").lowercase(Locale.ROOT)
+    return when {
+        statusCode == 401 || statusCode == 403 ->
+            ProductRemoteException.Unauthorized
+
+        text.contains("штрихкод уже используется") ||
+            text.contains("duplicate key value") ||
+            text.contains("дублирующее значение") ||
+            text.contains("already exists") ||
+            text.contains("уже существует") ->
+            ProductRemoteException.DuplicateBarcode
+
+        text.contains("конфликт версий") ||
+            text.contains("serialization failure") ||
+            text.contains("could not serialize") ->
+            ProductRemoteException.VersionConflict
+
+        text.contains("товар не найден") ||
+            text.contains("no rows") ||
+            statusCode == 404 ->
+            ProductRemoteException.NotFound
+
+        else -> ProductRemoteException.ServerError
     }
 }

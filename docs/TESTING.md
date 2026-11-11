@@ -28,7 +28,7 @@ source scripts/android-env.sh
 
 ## Фактический результат этапа 4
 
-**105 тестов: 105 прошли, 0 пропущено, 0 ошибок.** Lint: 0 ошибок, 52 предупреждения (48 × `GradleDependency`, 3 × `AndroidGradlePluginVersion`, 1 × `ObsoleteSdkInt`). Проверка выполнена командой `./gradlew assembleDebug testDebugUnitTest lintDebug`.
+**110 тестов: 110 прошли, 0 пропущено, 0 ошибок.** Lint: 0 ошибок, 52 предупреждения (48 × `GradleDependency`, 3 × `AndroidGradlePluginVersion`, 1 × `ObsoleteSdkInt`). Проверка выполнена командой `./gradlew assembleDebug testDebugUnitTest lintDebug`.
 
 | Класс | Тестов | Что проверяет |
 |---|---:|---|
@@ -46,7 +46,7 @@ source scripts/android-env.sh
 | `AuthViewModelTest` | 9 | валидация, нормализация, успех, ошибки входа, очистка ошибки, выход, троттлинг тихой проверки |
 | `AuthSessionControllerTest` | 9 | офлайн-кэш, срок 30 дней, очистка, чужой пользователь, возврат в онлайн |
 | `SupabaseAuthRepositoryTest` | 4 | коллектор проверяет профиль раньше signIn; inactive/missing/network/server дают правильный результат |
-| `RemoteProductMappingTest` | 2 | нормализация серверной строки для Room, пустой штрихкод → `NULL` |
+| `RemoteProductMappingTest` | 7 | нормализация серверной строки для Room, пустой штрихкод → `NULL`, маппинг ошибок PostgREST |
 | `SyncingProductRepositoryTest` | 11 | замена снимка, сохранение кэша при ошибке, выгрузка legacy, приоритет штрихкода, create/update/delete и ошибки |
 | `MainActivitySmokeTest` | 1 | запуск `MainActivity` без падения |
 
