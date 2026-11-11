@@ -219,7 +219,7 @@ adb shell am start -n com.storeprice.app/.MainActivity
 
 - `GET /auth/v1/health` → `200`, GoTrue v2.197.0;
 - `GET /auth/v1/settings` → `external.phone: true`, `disable_signup: true`;
-- обе миграции применены: 5 таблиц, 9 политик RLS, 8 функций, 5 триггеров;
+- миграции `001` и `002` применены: 5 таблиц, 9 политик RLS, 8 функций, 5 триггеров; `003` не применена;
 - первый администратор создан с подтверждённым телефоном и активным профилем `admin`;
 - `POST /auth/v1/token?grant_type=password` с администратором → `200`, access token получен;
 - `GET /rest/v1/products` и `GET /rest/v1/profiles` с реальным JWT → `200`;
@@ -229,7 +229,7 @@ adb shell am start -n com.storeprice.app/.MainActivity
 
 ## SQL-миграции Supabase (локальная проверка)
 
-Миграции `supabase/migrations/202611100001_schema.sql` и `202611100002_rls_and_rpc.sql` проверены на временной базе PostgreSQL 17 с заглушками `auth.users`, `auth.uid()`, `auth.role()` и ролями `anon`/`authenticated`/`service_role`. Проверено:
+Миграции `supabase/migrations/202611100001_schema.sql`, `202611100002_rls_and_rpc.sql` и `202611100003_hardening.sql` проверены на временной базе PostgreSQL 17 с заглушками `auth.users`, `auth.uid()`, `auth.role()` и ролями `anon`/`authenticated`/`service_role`. Миграция `003` применена дважды, чтобы проверить идемпотентность. Проверено:
 
 - профиль создаётся триггером и неактивен по умолчанию;
 - неактивный и деактивированный сотрудник не читает каталог и не вызывает RPC;
@@ -240,9 +240,16 @@ adb shell am start -n com.storeprice.app/.MainActivity
 - неизменяемость истории цен;
 - доступ к `device_tokens` только владельцу;
 - административные RPC активации и смены роли;
-- аудит недоступен сотруднику.
+- аудит недоступен сотруднику;
+- RLS-политики пересозданы с `(select auth.uid())`, `(select public.current_user_is_active())` и `(select public.current_user_is_admin())`;
+- у `touch_updated_at`, `set_product_audit_fields`, `record_price_history`, `log_product_change`, `prevent_price_history_mutation`, `handle_new_user` отозван `EXECUTE` у `public`, `anon`, `authenticated`;
+- второй пользователь регистрирует тот же `fcm_token`: остаётся ровно одна активная запись, принадлежащая второму пользователю;
+- повторная регистрация того же устройства обновляет существующую запись, а не создаёт дубликат;
+- `unregister_device_token` деактивирует запись текущего пользователя для устройства;
+- `restore_product` с занятым штрихкодом возвращает `23505` и сообщение «Штрихкод уже используется активным товаром»;
+- `create_product` и `update_product` при конфликте штрихкода возвращают тот же `23505` и сообщение.
 
-**Проверено на живом проекте:** миграции применены, Admin API создал администратора, вход через Auth вернул JWT, чтение `products`/`profiles` через PostgREST работает, анонимный доступ получает `401`. **Не проверено:** RPC записи, деактивация/смена роли, refresh и неизменяемость истории цен через реальный JWT.
+**Проверено на живом проекте:** миграции `001` и `002` применены, Admin API создал администратора, вход через Auth вернул JWT, чтение `products`/`profiles` через PostgREST работает, анонимный доступ получает `401`. **Не применена:** `003_hardening.sql` — подготовлена и проверена на временной PostgreSQL, но требует отдельного применения к живому проекту. **Не проверено:** RPC записи, деактивация/смена роли, refresh и неизменяемость истории цен через реальный JWT.
 
 ## Производительность
 
