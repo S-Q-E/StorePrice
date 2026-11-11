@@ -9,9 +9,87 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import java.io.Closeable
+import kotlin.math.hypot
+
+/** Minimal barcode data needed to choose the code closest to the frame center. */
+internal data class BarcodeCandidate(
+    val rawValue: String?,
+    val boundingBox: BarcodeBounds?,
+)
+
+/** Android-independent copy of a barcode bounding box. */
+internal data class BarcodeBounds(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+) {
+    val centerX: Int get() = (left + right) / 2
+    val centerY: Int get() = (top + bottom) / 2
+}
 
 /**
- * Analyzes CameraX frames locally with ML Kit and emits the first readable barcode value.
+ * Picks the readable barcode closest to the center of an upright frame.
+ *
+ * A missing bounding box has the lowest priority. If at least two different codes are
+ * detected and every measured code center is farther than 35% of the frame width from
+ * the image center, the frame is ignored because it is ambiguous.
+ */
+internal fun pickBarcode(
+    barcodes: List<BarcodeCandidate>,
+    width: Int,
+    height: Int,
+): BarcodeCandidate? {
+    val candidates = barcodes.filter { !it.rawValue.isNullOrBlank() }
+    if (candidates.isEmpty()) return null
+    if (width <= 0 || height <= 0) {
+        return candidates.firstOrNull { it.boundingBox != null } ?: candidates.first()
+    }
+
+    val imageCenterX = width / 2.0
+    val imageCenterY = height / 2.0
+    val maxCenterDistance = width * CENTER_DISTANCE_LIMIT
+
+    val ranked = candidates.map { candidate ->
+        val box = candidate.boundingBox
+        RankedBarcode(
+            candidate = candidate,
+            distance = if (box == null) {
+                null
+            } else {
+                hypot(box.centerX - imageCenterX, box.centerY - imageCenterY)
+            },
+        )
+    }
+
+    val nearestDistanceByValue = ranked
+        .filter { it.distance != null }
+        .groupBy { it.candidate.rawValue.orEmpty().trim() }
+        .mapValues { (_, items) -> items.minOf { it.distance!! } }
+
+    if (
+        nearestDistanceByValue.size >= 2 &&
+        nearestDistanceByValue.values.all { it > maxCenterDistance }
+    ) {
+        return null
+    }
+
+    return ranked.minWithOrNull(
+        compareBy<RankedBarcode> { it.distance == null }
+            .thenBy { it.distance ?: Double.MAX_VALUE },
+    )?.candidate
+}
+
+private data class RankedBarcode(
+    val candidate: BarcodeCandidate,
+    val distance: Double?,
+)
+
+private const val CENTER_DISTANCE_LIMIT = 0.35
+
+/**
+ * Analyzes CameraX frames locally with ML Kit and emits the readable barcode closest to
+ * the frame center.
  *
  * Repeating the same value in consecutive frames is throttled, while the ViewModel still
  * locks the whole scan session after the first product lookup.
@@ -67,11 +145,35 @@ class BarcodeAnalyzer(
         scanner.process(inputImage)
             .addOnSuccessListener { barcodes ->
                 if (closed) return@addOnSuccessListener
-                val value = barcodes
-                    .asSequence()
-                    .mapNotNull { it.rawValue }
-                    .map { it.trim() }
-                    .firstOrNull { it.isNotEmpty() }
+                val rotation = imageProxy.imageInfo.rotationDegrees
+                val rotatedWidth = if (rotation == 90 || rotation == 270) {
+                    inputImage.height
+                } else {
+                    inputImage.width
+                }
+                val rotatedHeight = if (rotation == 90 || rotation == 270) {
+                    inputImage.width
+                } else {
+                    inputImage.height
+                }
+                val selected = pickBarcode(
+                    barcodes = barcodes.map { barcode ->
+                        BarcodeCandidate(
+                            rawValue = barcode.rawValue,
+                            boundingBox = barcode.boundingBox?.let { box ->
+                                BarcodeBounds(
+                                    left = box.left,
+                                    top = box.top,
+                                    right = box.right,
+                                    bottom = box.bottom,
+                                )
+                            },
+                        )
+                    },
+                    width = rotatedWidth,
+                    height = rotatedHeight,
+                )
+                val value = selected?.rawValue?.trim()?.takeIf { it.isNotEmpty() }
                 if (value != null && shouldEmit(value)) {
                     onBarcodeDetected(value)
                 }
