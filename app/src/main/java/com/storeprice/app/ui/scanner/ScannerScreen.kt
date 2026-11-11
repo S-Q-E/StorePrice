@@ -11,6 +11,7 @@ import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.CameraState
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.ResolutionSelector
@@ -68,6 +69,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.Observer
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -266,6 +269,8 @@ private fun BarcodeCameraPreview(
         var provider: ProcessCameraProvider? = null
         var analysisExecutor: ExecutorService? = null
         var analyzer: BarcodeAnalyzer? = null
+        var observedCameraState: LiveData<CameraState>? = null
+        var cameraStateObserver: Observer<CameraState>? = null
         var disposed = false
 
         providerFuture.addListener(
@@ -302,12 +307,25 @@ private fun BarcodeCameraPreview(
                         .also { it.setAnalyzer(executor, barcodeAnalyzer) }
 
                     cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
+                    val camera = cameraProvider.bindToLifecycle(
                         lifecycleOwner,
                         cameraSelector,
                         preview,
                         analysis,
                     )
+                    val cameraState = camera.cameraInfo.cameraState
+                    val observer = Observer<CameraState> { state ->
+                        if (
+                            !disposed &&
+                            state.type == CameraState.Type.CLOSED &&
+                            state.error != null
+                        ) {
+                            currentOnCameraError()
+                        }
+                    }
+                    observedCameraState = cameraState
+                    cameraStateObserver = observer
+                    cameraState.observe(lifecycleOwner, observer)
                 } catch (_: Exception) {
                     provider?.unbindAll()
                     if (!disposed) currentOnCameraError()
@@ -318,6 +336,11 @@ private fun BarcodeCameraPreview(
 
         onDispose {
             disposed = true
+            cameraStateObserver?.let { observer ->
+                observedCameraState?.removeObserver(observer)
+            }
+            cameraStateObserver = null
+            observedCameraState = null
             analyzer?.close()
             provider?.unbindAll()
             analysisExecutor?.shutdown()
