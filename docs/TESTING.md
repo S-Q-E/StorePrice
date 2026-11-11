@@ -28,7 +28,7 @@ source scripts/android-env.sh
 
 ## Фактический результат этапа 4
 
-**73 теста: 73 прошли, 0 пропущено, 0 ошибок.** Lint: 0 ошибок, 49 предупреждений (45 × `GradleDependency`, 3 × `AndroidGradlePluginVersion`, 1 × `ObsoleteSdkInt`). Проверка выполнена командой `./gradlew assembleDebug testDebugUnitTest lintDebug`.
+**77 тестов: 77 прошли, 0 пропущено, 0 ошибок.** Lint: 0 ошибок, 49 предупреждений (45 × `GradleDependency`, 3 × `AndroidGradlePluginVersion`, 1 × `ObsoleteSdkInt`). Проверка выполнена командой `./gradlew assembleDebug testDebugUnitTest lintDebug`.
 
 | Класс | Тестов | Что проверяет |
 |---|---:|---|
@@ -43,6 +43,7 @@ source scripts/android-env.sh
 | `PhoneNumberTest` | 5 | форматы `8...`, `+7...`, 10 цифр, международный номер, неверные значения |
 | `AuthViewModelTest` | 9 | валидация, нормализация, успех, ошибки входа, очистка ошибки, выход, троттлинг тихой проверки |
 | `AuthSessionControllerTest` | 9 | офлайн-кэш, срок 30 дней, очистка, чужой пользователь, возврат в онлайн |
+| `SupabaseAuthRepositoryTest` | 4 | коллектор проверяет профиль раньше signIn; inactive/missing/network/server дают правильный результат |
 | `MainActivitySmokeTest` | 1 | запуск `MainActivity` без падения |
 
 Тесты Room и smoke-тест выполняются через Robolectric (`sdk = 34`), без устройства. База для CRUD-тестов — in-memory; для persistence-теста — файловая с удалением после теста. Smoke-тест создаёт `AppContainer` с реальным Supabase-клиентом, но без сети: сохранённой сессии нет, поэтому приложение показывает экран входа.
@@ -92,6 +93,7 @@ source scripts/android-env.sh
 - Кэш чужого пользователя игнорируется и очищается.
 - Неактивный/отсутствующий профиль, ответ 401 и выход очищают кэш.
 - Успешная проверка после офлайн-ошибки снимает `isOffline`.
+- Коллектор сессии и интерактивный вход используют один результат: inactive/missing/network/server возвращаются правильно даже если коллектор сработал первым.
 - Тихая проверка при `ON_RESUME` выполняется не чаще раза в 5 минут.
 
 ## Что не покрыто

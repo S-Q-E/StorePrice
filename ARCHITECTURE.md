@@ -143,6 +143,7 @@ profiles (PostgREST, RLS) → Employee(role, is_active)
 - Вход — phone + password. Публичная регистрация в Supabase должна быть выключена; сотрудников создаёт администратор.
 - `AuthViewModel` — единая точка состояния входа: `Initializing`, `SignedOut`, `SignedIn(isOffline)`, `Unavailable`.
 - После входа и при восстановлении сессии клиент читает `public.profiles` текущего пользователя. Роль и `is_active` приходят с сервера, а не из клиентских настроек.
+- Интерактивный вход не читает сессию после `signInWith`: коллектор и `signIn` обмениваются результатом через `Deferred` под `profileCheckMutex`, поэтому очистка сессии неактивного сотрудника не превращает `AccountInactive` в `ServerError`.
 - Неактивный/отсутствующий профиль, ответ 401 и выход очищают сессию и кэш профиля.
 - Активный профиль кэшируется в приватном `SharedPreferences` (`storeprice_profile_cache`) на 30 дней. Хранятся только id, имя, роль, `isActive` и время проверки; пароль и токены туда не попадают.
 - При сетевой ошибке или 5xx свежий кэш того же пользователя переводит состояние в `SignedIn(isOffline = true)`: каталог и навигация сохраняются, над списком показывается баннер. `Unavailable` и экран повтора остаются только без кэша или после 30 дней.
@@ -250,6 +251,7 @@ com.storeprice.app
 │   │   └── StorePriceDatabase.kt
 │   ├── auth/
 │   │   ├── AuthRepository.kt
+│   │   ├── AuthBackend.kt
 │   │   ├── AuthSessionController.kt
 │   │   ├── CachedProfileStore.kt
 │   │   ├── SupabaseAuthRepository.kt

@@ -5,7 +5,9 @@ import com.storeprice.app.data.auth.AuthRepository
 import com.storeprice.app.data.auth.CachedProfileStore
 import com.storeprice.app.data.auth.MissingConfigAuthRepository
 import com.storeprice.app.data.auth.SharedPreferencesSessionManager
+import com.storeprice.app.data.auth.SupabaseAuthBackend
 import com.storeprice.app.data.auth.SupabaseAuthRepository
+import com.storeprice.app.data.auth.SupabaseProfileFetcher
 import com.storeprice.app.data.local.StorePriceDatabase
 import com.storeprice.app.data.repository.ProductRepository
 import com.storeprice.app.data.repository.RoomProductRepository
@@ -50,9 +52,9 @@ class AppContainer(application: Application) {
         }
 
         return SupabaseAuthRepository(
-            supabase = supabase,
+            backend = SupabaseAuthBackend(supabase, sessionManager),
             profileCache = CachedProfileStore(application),
-            sessionManager = sessionManager,
+            profileFetcher = SupabaseProfileFetcher(supabase),
         )
     }
 }

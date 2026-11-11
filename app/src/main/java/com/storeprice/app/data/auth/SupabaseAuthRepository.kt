@@ -5,24 +5,16 @@ import com.storeprice.app.core.PhoneNumber
 import com.storeprice.app.domain.auth.AuthState
 import com.storeprice.app.domain.auth.AuthUnavailableReason
 import com.storeprice.app.domain.auth.SignInResult
-import com.storeprice.app.domain.model.EmployeeProfile
-import com.storeprice.app.domain.model.EmployeeRole
-import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.auth.SessionManager
-import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.exception.AuthErrorCode
 import io.github.jan.supabase.auth.exception.AuthRestException
-import io.github.jan.supabase.auth.providers.builtin.Phone
-import io.github.jan.supabase.auth.status.RefreshFailureCause
-import io.github.jan.supabase.auth.status.SessionStatus
-import io.github.jan.supabase.auth.user.UserSession
 import io.github.jan.supabase.exceptions.HttpRequestException
 import io.github.jan.supabase.exceptions.RestException
-import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.query.Columns
 import io.ktor.client.plugins.HttpRequestTimeoutException
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
@@ -30,8 +22,6 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
 
 /**
  * Реализация AuthRepository поверх Supabase Auth и PostgREST.
@@ -41,23 +31,29 @@ import kotlinx.serialization.Serializable
  * деактивированный сотрудник не попадёт в каталог. При временной сетевой или
  * серверной ошибке используется свежий кэш профиля, и каталог открывается в
  * офлайн-режиме.
+ *
+ * Проверка профиля при интерактивном входе выполняется ровно один раз: либо
+ * коллектором [AuthBackend.sessionEvents], либо ожиданием его результата в
+ * [signIn]. Это защищает от гонки, когда коллектор успевает очистить сессию
+ * неактивного сотрудника до возврата из `signInWith`.
  */
-class SupabaseAuthRepository(
-    private val supabase: SupabaseClient,
+internal class SupabaseAuthRepository(
+    private val backend: AuthBackend,
     profileCache: CachedProfileStore,
-    private val sessionManager: SessionManager,
+    private val profileFetcher: ProfileFetcher,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) : AuthRepository {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val profileCheckMutex = Mutex()
     private val sessionController = AuthSessionController(profileCache)
+    private val interactiveSignIn = AtomicReference<CompletableDeferred<ProfileCheck>?>(null)
 
     override val state: StateFlow<AuthState> = sessionController.state
 
     init {
-        scope.launch {
-            supabase.auth.sessionStatus.collect { status ->
-                onSessionStatus(status)
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            backend.sessionEvents.collect { event ->
+                onSessionEvent(event)
             }
         }
     }
@@ -66,26 +62,13 @@ class SupabaseAuthRepository(
         val normalizedPhone = PhoneNumber.normalize(phone) ?: return SignInResult.InvalidPhone
         if (password.isBlank()) return SignInResult.PasswordRequired
 
+        val check = CompletableDeferred<ProfileCheck>()
+        interactiveSignIn.set(check)
         return try {
-            supabase.auth.signInWith(Phone) {
-                this.phone = normalizedPhone
-                this.password = password
-            }
-
-            val session = supabase.auth.currentSessionOrNull()
-                ?: return SignInResult.ServerError
-
-            when (val check = validateSession(session)) {
-                ProfileCheck.Active,
-                ProfileCheck.Offline -> SignInResult.Success
-
-                ProfileCheck.Inactive -> SignInResult.AccountInactive
-                ProfileCheck.Missing -> SignInResult.AccountNotFound
-                is ProfileCheck.Unavailable -> when (check.reason) {
-                    AuthUnavailableReason.NETWORK -> SignInResult.NetworkError
-                    AuthUnavailableReason.SERVER -> SignInResult.ServerError
-                }
-            }
+            backend.signInWithPassword(normalizedPhone, password)
+            // Не читаем currentSessionOrNull() после signInWith: коллектор мог
+            // уже проверить профиль и очистить сессию неактивного сотрудника.
+            check.await().toSignInResult()
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (error: AuthRestException) {
@@ -101,18 +84,20 @@ class SupabaseAuthRepository(
         } catch (error: Exception) {
             Log.e(TAG, "Unexpected sign-in failure", error)
             SignInResult.ServerError
+        } finally {
+            interactiveSignIn.compareAndSet(check, null)
         }
     }
 
     override suspend fun signOut() {
-        runCatching { supabase.auth.signOut() }
-        runCatching { supabase.auth.clearSession() }
+        runCatching { backend.signOut() }
+        runCatching { backend.clearSession() }
         sessionController.onSignedOut()
     }
 
     override suspend fun retrySession() {
         sessionController.onInitializing()
-        val currentSession = supabase.auth.currentSessionOrNull()
+        val currentSession = backend.currentSession()
         if (currentSession != null) {
             validateSession(currentSession)
             return
@@ -120,8 +105,8 @@ class SupabaseAuthRepository(
 
         val storedUserId = storedSessionUserId()
         try {
-            if (supabase.auth.loadFromStorage()) {
-                val loadedSession = supabase.auth.currentSessionOrNull()
+            if (backend.loadFromStorage()) {
+                val loadedSession = backend.currentSession()
                 if (loadedSession != null) {
                     validateSession(loadedSession)
                 } else if (storedUserId != null) {
@@ -148,95 +133,110 @@ class SupabaseAuthRepository(
     }
 
     override suspend fun refreshSessionSilently() {
-        // Если SDK уже обновляет сессию после RefreshFailure, currentSessionOrNull
+        // Если SDK уже обновляет сессию после RefreshFailure, currentSession()
         // вернёт null; его собственный retry продолжится без экрана загрузки.
-        val currentSession = supabase.auth.currentSessionOrNull() ?: return
+        val currentSession = backend.currentSession() ?: return
         validateSession(currentSession)
     }
 
-    private suspend fun onSessionStatus(status: SessionStatus) {
-        when (status) {
-            SessionStatus.Initializing -> {
+    private suspend fun onSessionEvent(event: AuthSessionEvent) {
+        when (event) {
+            AuthSessionEvent.Initializing -> {
                 sessionController.onInitializing()
             }
 
-            is SessionStatus.NotAuthenticated -> {
+            AuthSessionEvent.NotAuthenticated -> {
                 if (sessionController.state.value !is AuthState.SignedOut) {
                     sessionController.onSignedOut()
                 }
             }
 
-            is SessionStatus.Authenticated -> {
-                validateSession(status.session)
+            is AuthSessionEvent.Authenticated -> {
+                validateSession(event.session)
             }
 
-            is SessionStatus.RefreshFailure -> {
-                val reason = when (status.cause) {
-                    is RefreshFailureCause.NetworkError -> AuthUnavailableReason.NETWORK
-                    is RefreshFailureCause.InternalServerError -> AuthUnavailableReason.SERVER
-                }
-                sessionController.onTransientFailure(reason, currentOrStoredUserId())
+            is AuthSessionEvent.RefreshFailure -> {
+                sessionController.onTransientFailure(event.reason, currentOrStoredUserId())
             }
         }
     }
 
-    private suspend fun validateSession(session: UserSession): ProfileCheck =
-        profileCheckMutex.withLock {
-            val user = session.user
-            if (user == null) {
-                clearLocalSession()
-                sessionController.onUnauthorized()
-                return@withLock ProfileCheck.Missing
-            }
-
+    /**
+     * Проверяет профиль под общим мьютексом и сообщает результат интерактивному
+     * входу, если он ждёт. [interactiveSignIn] читается до захвата мьютекса:
+     * проверка, начатая до входа, не должна завершать новый Deferred.
+     */
+    private suspend fun validateSession(session: AuthSessionSnapshot): ProfileCheck {
+        val interactive = interactiveSignIn.get()
+        val result = profileCheckMutex.withLock {
             try {
-                val profile = fetchProfile(user.id, user.phone)
-                when {
-                    profile == null -> {
-                        clearLocalSession()
-                        sessionController.onMissing()
-                        ProfileCheck.Missing
-                    }
-
-                    !profile.isActive -> {
-                        clearLocalSession()
-                        sessionController.onInactive()
-                        ProfileCheck.Inactive
-                    }
-
-                    else -> {
-                        sessionController.onActive(profile)
-                        ProfileCheck.Active
-                    }
-                }
+                checkProfile(session)
             } catch (cancellation: CancellationException) {
                 throw cancellation
-            } catch (error: RestException) {
-                if (error.statusCode == 401) {
-                    clearLocalSession()
-                    sessionController.onUnauthorized()
-                    ProfileCheck.Missing
-                } else {
-                    Log.w(TAG, "Could not read the employee profile", error)
-                    if (error.statusCode >= 500) {
-                        transientProfileCheck(AuthUnavailableReason.SERVER, user.id)
-                    } else {
-                        sessionController.onUnavailable(AuthUnavailableReason.SERVER)
-                        ProfileCheck.Unavailable(AuthUnavailableReason.SERVER)
-                    }
-                }
-            } catch (error: HttpRequestException) {
-                Log.w(TAG, "Could not reach Supabase to read the profile", error)
-                transientProfileCheck(AuthUnavailableReason.NETWORK, user.id)
-            } catch (error: HttpRequestTimeoutException) {
-                Log.w(TAG, "Profile request timed out", error)
-                transientProfileCheck(AuthUnavailableReason.NETWORK, user.id)
             } catch (error: Exception) {
                 Log.e(TAG, "Unexpected profile check failure", error)
                 sessionController.onUnavailable(AuthUnavailableReason.SERVER)
                 ProfileCheck.Unavailable(AuthUnavailableReason.SERVER)
             }
         }
+        interactive?.complete(result)
+        return result
+    }
+
+    private suspend fun checkProfile(session: AuthSessionSnapshot): ProfileCheck {
+        val userId = session.userId
+        if (userId == null) {
+            clearLocalSession()
+            sessionController.onUnauthorized()
+            return ProfileCheck.Missing
+        }
+
+        return when (val fetched = profileFetcher.fetch(userId, session.phone)) {
+            is ProfileFetchResult.Found -> {
+                if (!fetched.profile.isActive) {
+                    clearLocalSession()
+                    sessionController.onInactive()
+                    ProfileCheck.Inactive
+                } else {
+                    sessionController.onActive(fetched.profile)
+                    ProfileCheck.Active
+                }
+            }
+
+            ProfileFetchResult.Missing -> {
+                clearLocalSession()
+                sessionController.onMissing()
+                ProfileCheck.Missing
+            }
+
+            ProfileFetchResult.Unauthorized -> {
+                clearLocalSession()
+                sessionController.onUnauthorized()
+                ProfileCheck.Missing
+            }
+
+            is ProfileFetchResult.Failed -> {
+                if (fetched.allowCachedProfile) {
+                    transientProfileCheck(fetched.reason, userId)
+                } else {
+                    sessionController.onUnavailable(fetched.reason)
+                    ProfileCheck.Unavailable(fetched.reason)
+                }
+            }
+        }
+    }
+
+    private fun ProfileCheck.toSignInResult(): SignInResult = when (this) {
+        ProfileCheck.Active,
+        ProfileCheck.Offline -> SignInResult.Success
+
+        ProfileCheck.Inactive -> SignInResult.AccountInactive
+        ProfileCheck.Missing -> SignInResult.AccountNotFound
+        is ProfileCheck.Unavailable -> when (reason) {
+            AuthUnavailableReason.NETWORK -> SignInResult.NetworkError
+            AuthUnavailableReason.SERVER -> SignInResult.ServerError
+        }
+    }
 
     private fun transientProfileCheck(
         reason: AuthUnavailableReason,
@@ -247,25 +247,11 @@ class SupabaseAuthRepository(
         ProfileCheck.Unavailable(reason)
     }
 
-    private suspend fun fetchProfile(userId: String, phone: String?): EmployeeProfile? {
-        val row = supabase.postgrest
-            .from(TABLE_PROFILES)
-            .select(
-                Columns.list("id", "display_name", "role", "is_active"),
-            ) {
-                filter { eq("id", userId) }
-                limit(1)
-            }
-            .decodeSingleOrNull<ProfileRow>()
-
-        return row?.toDomain(phone)
-    }
-
     private suspend fun currentOrStoredUserId(): String? =
-        supabase.auth.currentSessionOrNull()?.user?.id ?: storedSessionUserId()
+        backend.currentSession()?.userId ?: storedSessionUserId()
 
     private suspend fun storedSessionUserId(): String? = try {
-        sessionManager.loadSession()?.user?.id
+        backend.storedSession()?.userId
     } catch (cancellation: CancellationException) {
         throw cancellation
     } catch (error: Exception) {
@@ -274,7 +260,7 @@ class SupabaseAuthRepository(
     }
 
     private suspend fun clearLocalSession() {
-        runCatching { supabase.auth.clearSession() }
+        runCatching { backend.clearSession() }
     }
 
     private fun mapAuthError(error: AuthRestException): SignInResult = when {
@@ -296,25 +282,7 @@ class SupabaseAuthRepository(
         data class Unavailable(val reason: AuthUnavailableReason) : ProfileCheck
     }
 
-    @Serializable
-    private data class ProfileRow(
-        val id: String,
-        @SerialName("display_name") val displayName: String,
-        val role: String,
-        @SerialName("is_active") val isActive: Boolean,
-    ) {
-        fun toDomain(phone: String?): EmployeeProfile = EmployeeProfile(
-            id = id,
-            displayName = displayName,
-            phone = phone,
-            role = if (role == ROLE_ADMIN) EmployeeRole.ADMIN else EmployeeRole.EMPLOYEE,
-            isActive = isActive,
-        )
-    }
-
     private companion object {
         const val TAG = "AuthRepository"
-        const val TABLE_PROFILES = "profiles"
-        const val ROLE_ADMIN = "admin"
     }
 }
