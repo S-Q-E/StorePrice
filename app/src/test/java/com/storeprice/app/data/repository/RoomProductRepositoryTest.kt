@@ -170,6 +170,35 @@ class RoomProductRepositoryTest {
     }
 
     @Test
+    fun `catalog sorts kazakh names with collator`() = runBlocking {
+        listOf("Қант", "Алма", "Ұн", "Яблоко", "Ёлка", "Әтір", "Бидай")
+            .forEach { addProduct(name = it) }
+
+        val names = query("")
+
+        assertEquals(
+            listOf("Алма", "Әтір", "Бидай", "Ёлка", "Қант", "Ұн", "Яблоко"),
+            names,
+        )
+        assertTrue(names.indexOf("Яблоко") > names.indexOf("Қант"))
+        assertTrue(names.indexOf("Яблоко") > names.indexOf("Ұн"))
+        assertTrue(names.indexOf("Яблоко") > names.indexOf("Әтір"))
+    }
+
+    @Test
+    fun `search keeps priority groups and sorts names inside a group`() = runBlocking {
+        addProduct(name = "Қант", barcode = "777")
+        addProduct(name = "Алма", barcode = null)
+        addProduct(name = "Ёлка", barcode = null)
+        addProduct(name = "Бидай", barcode = null)
+
+        assertEquals(
+            listOf("Алма", "Бидай", "Ёлка", "Қант"),
+            query("а"),
+        )
+    }
+
+    @Test
     fun `search is case insensitive and normalizes spaces`() = runBlocking {
         addProduct(name = "Молоко", barcode = "12345")
 

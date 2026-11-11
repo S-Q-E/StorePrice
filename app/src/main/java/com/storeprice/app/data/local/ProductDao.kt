@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ProductDao {
 
-    @Query("SELECT * FROM products WHERE is_deleted = 0 ORDER BY name_normalized ASC, id ASC")
+    @Query("SELECT * FROM products WHERE is_deleted = 0 ORDER BY id ASC")
     fun observeAll(): Flow<List<ProductEntity>>
 
     @Query(
@@ -27,7 +27,6 @@ interface ProductDao {
             WHEN name_normalized LIKE :namePrefix ESCAPE '\' THEN 3
             ELSE 4
         END,
-        name_normalized ASC,
         id ASC
         """,
     )

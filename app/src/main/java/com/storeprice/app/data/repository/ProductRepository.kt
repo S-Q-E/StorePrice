@@ -5,6 +5,7 @@ import com.storeprice.app.data.local.ProductDao
 import com.storeprice.app.data.local.ProductEntity
 import com.storeprice.app.domain.model.Product
 import com.storeprice.app.domain.validation.ProductValidator
+import java.text.Collator
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
@@ -64,7 +65,11 @@ class RoomProductRepository(
                 namePrefix = "$escaped%",
             )
         }
-        return flow.map { entities -> entities.map { it.toDomain() } }
+        return flow.map { entities ->
+            entities
+                .sortedWith(productComparator(normalized.takeIf { it.isNotEmpty() }))
+                .map { it.toDomain() }
+        }
     }
 
     override fun observeProduct(id: String): Flow<Product?> =
@@ -137,6 +142,68 @@ class RoomProductRepository(
 
     override suspend fun delete(id: String): Boolean = writeMutex.withLock {
         dao.softDelete(id, clock()) > 0
+    }
+
+    /**
+     * Orders products by the search priority (when [query] is present) and then by
+     * a Russian/Kazakh collation of the display name. SQLite's binary `ORDER BY`
+     * puts Kazakh letters after `я`, so name ordering must happen in Kotlin.
+     */
+    private fun productComparator(query: String?): Comparator<ProductEntity> {
+        val collator = createCollator()
+        return Comparator { left, right ->
+            if (query != null) {
+                val rankComparison = searchRank(left, query).compareTo(searchRank(right, query))
+                if (rankComparison != 0) return@Comparator rankComparison
+            }
+            val nameComparison = collator.compare(
+                collationText(left.name),
+                collationText(right.name),
+            )
+            if (nameComparison != 0) nameComparison else left.id.compareTo(right.id)
+        }
+    }
+
+    /**
+     * Russian collation rules do not know the Kazakh letters and place them after `я`
+     * on JVM hosts. Folding each letter to the closest Russian one keeps the Kazakh
+     * alphabet order while still using a [Collator] for the comparison.
+     */
+    private fun collationText(value: String): String = buildString(value.length) {
+        value.forEach { char ->
+            append(
+                when (char.lowercaseChar()) {
+                    'ә' -> 'а'
+                    'ғ' -> 'г'
+                    'қ' -> 'к'
+                    'ң' -> 'н'
+                    'ө' -> 'о'
+                    'ұ' -> 'у'
+                    'ү' -> 'у'
+                    'һ' -> 'х'
+                    'і' -> 'и'
+                    else -> char
+                },
+            )
+        }
+    }
+
+    private fun searchRank(entity: ProductEntity, query: String): Int = when {
+        entity.barcodeNormalized == query -> 0
+        entity.nameNormalized == query -> 1
+        entity.barcodeNormalized?.startsWith(query) == true -> 2
+        entity.nameNormalized.startsWith(query) -> 3
+        else -> 4
+    }
+
+    private fun createCollator(): Collator {
+        val collator = try {
+            Collator.getInstance(Locale("ru", "KZ"))
+        } catch (_: RuntimeException) {
+            Collator.getInstance(Locale("ru"))
+        }
+        collator.strength = Collator.SECONDARY
+        return collator
     }
 
     private suspend fun hasBarcodeConflict(
