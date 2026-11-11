@@ -20,6 +20,8 @@ captures/
 !.env.example
 secrets.properties
 google-services.json
+supabase_admin.env
+supabase_admin*.env
 
 # OS and editor noise
 .DS_Store
