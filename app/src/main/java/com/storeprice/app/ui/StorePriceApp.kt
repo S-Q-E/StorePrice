@@ -1,10 +1,12 @@
 package com.storeprice.app.ui
 
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -15,6 +17,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.storeprice.app.R
 import com.storeprice.app.domain.auth.AuthState
 import com.storeprice.app.domain.model.EmployeeProfile
 import com.storeprice.app.ui.auth.AuthLoadingScreen
@@ -78,10 +81,9 @@ fun StorePriceApp(modifier: Modifier = Modifier) {
         is AuthState.SignedIn -> CatalogApp(
             employee = authState.employee,
             isOffline = authState.isOffline,
-            // На этапе 4 каталог ещё локальный, поэтому редактирование разрешено.
-            // После подключения Supabase в офлайне его нужно ограничить или
-            // ставить изменения в очередь.
-            canEdit = true,
+            // Первая версия общей базы не ставит изменения в очередь: без
+            // подтверждённого онлайн-сеанса редактирование скрыто.
+            canEdit = !authState.isOffline,
             onSignOut = authViewModel::signOut,
             modifier = modifier,
         )
@@ -104,6 +106,7 @@ private fun CatalogApp(
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
+    val context = LocalContext.current
 
     NavHost(
         navController = navController,
@@ -133,8 +136,17 @@ private fun CatalogApp(
                     }
                 },
                 onNewProduct = { barcode ->
-                    navController.navigate(Routes.newProduct(barcode)) {
-                        popUpTo(Routes.SCANNER) { inclusive = true }
+                    if (canEdit) {
+                        navController.navigate(Routes.newProduct(barcode)) {
+                            popUpTo(Routes.SCANNER) { inclusive = true }
+                        }
+                    } else {
+                        Toast.makeText(
+                            context,
+                            R.string.offline_edit_disabled,
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        navController.popBackStack(Routes.SCANNER, inclusive = true)
                     }
                 },
             )
@@ -183,6 +195,7 @@ private fun CatalogApp(
             ProductDetailScreen(
                 productId = productId,
                 onBack = { navController.popBackStack() },
+                canEdit = canEdit,
                 onEdit = { id -> navController.navigate(Routes.editProduct(id)) },
                 onDeleted = {
                     if (!navController.popBackStack(Routes.PRODUCTS, inclusive = false)) {

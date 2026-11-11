@@ -13,6 +13,9 @@ interface ProductDao {
     @Query("SELECT * FROM products WHERE is_deleted = 0 ORDER BY id ASC")
     fun observeAll(): Flow<List<ProductEntity>>
 
+    @Query("SELECT * FROM products")
+    suspend fun getAll(): List<ProductEntity>
+
     @Query(
         """
         SELECT * FROM products
@@ -67,8 +70,17 @@ interface ProductDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(product: ProductEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(product: ProductEntity)
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertAll(products: List<ProductEntity>)
+
+    @Query("DELETE FROM products")
+    suspend fun deleteAll()
+
+    @Query("DELETE FROM products WHERE id = :id")
+    suspend fun deleteById(id: String)
 
     @Update
     suspend fun update(product: ProductEntity)

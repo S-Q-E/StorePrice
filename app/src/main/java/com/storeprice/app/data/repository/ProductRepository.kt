@@ -17,6 +17,17 @@ sealed interface SaveProductResult {
     data class Success(val id: String) : SaveProductResult
     data object DuplicateBarcode : SaveProductResult
     data object NotFound : SaveProductResult
+    data object VersionConflict : SaveProductResult
+    data object NetworkUnavailable : SaveProductResult
+    data object ServerError : SaveProductResult
+}
+
+sealed interface CatalogSyncResult {
+    data object Success : CatalogSyncResult
+    data object NotConfigured : CatalogSyncResult
+    data object Unauthorized : CatalogSyncResult
+    data object NetworkUnavailable : CatalogSyncResult
+    data object ServerError : CatalogSyncResult
 }
 
 interface ProductRepository {
@@ -38,6 +49,14 @@ interface ProductRepository {
         barcode: String?,
     ): SaveProductResult
     suspend fun delete(id: String): Boolean
+
+    /**
+     * Refreshes the local Room cache from the shared catalog.
+     *
+     * Local-only repositories do nothing. The UI keeps observing Room before,
+     * during and after the request.
+     */
+    suspend fun syncCatalog(): CatalogSyncResult = CatalogSyncResult.NotConfigured
 }
 
 class RoomProductRepository(

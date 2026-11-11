@@ -39,6 +39,9 @@ class ProductListViewModel(
                 }
             }
         }
+        viewModelScope.launch {
+            repository.syncCatalog()
+        }
     }
 
     fun onQueryChange(value: String) {

@@ -70,6 +70,38 @@ class ProductEditorViewModelTest {
     }
 
     @Test
+    fun `network failure keeps the form and shows an offline message`() = runTest {
+        val repository = FakeProductRepository(
+            saveResult = SaveProductResult.NetworkUnavailable,
+        )
+        val viewModel = ProductEditorViewModel(repository, productId = null)
+
+        viewModel.onNameChange("Молоко")
+        viewModel.onPriceChange("100")
+        viewModel.save()
+
+        assertEquals(EditorFormError.NETWORK_UNAVAILABLE, viewModel.uiState.value.formError)
+        assertEquals("Молоко", viewModel.uiState.value.name)
+        assertFalse(viewModel.uiState.value.saved)
+    }
+
+    @Test
+    fun `version conflict keeps the form and asks to refresh`() = runTest {
+        val repository = FakeProductRepository(
+            saveResult = SaveProductResult.VersionConflict,
+        )
+        val viewModel = ProductEditorViewModel(repository, productId = null)
+
+        viewModel.onNameChange("Молоко")
+        viewModel.onPriceChange("100")
+        viewModel.save()
+
+        assertEquals(EditorFormError.VERSION_CONFLICT, viewModel.uiState.value.formError)
+        assertEquals("Молоко", viewModel.uiState.value.name)
+        assertFalse(viewModel.uiState.value.saved)
+    }
+
+    @Test
     fun `scanned barcode is prefilled for a new product`() = runTest {
         val repository = FakeProductRepository(
             saveResult = SaveProductResult.Success("new-id"),

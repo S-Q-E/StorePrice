@@ -76,6 +76,7 @@ fun ProductDetailScreen(
     onEdit: (String) -> Unit,
     onDeleted: () -> Unit,
     modifier: Modifier = Modifier,
+    canEdit: Boolean = true,
     viewModel: ProductDetailViewModel = viewModel(
         factory = ProductDetailViewModel.factory(
             repository = rememberProductRepository(),
@@ -105,7 +106,7 @@ fun ProductDetailScreen(
                 },
                 actions = {
                     val product = uiState.product
-                    if (product != null) {
+                    if (product != null && canEdit) {
                         IconButton(onClick = { onEdit(product.id) }) {
                             Icon(
                                 imageVector = Icons.Default.Edit,
@@ -138,6 +139,7 @@ fun ProductDetailScreen(
                 product = requireNotNull(uiState.product),
                 isDeleting = uiState.isDeleting,
                 deleteFailed = uiState.deleteFailed,
+                canEdit = canEdit,
                 onEdit = { onEdit(requireNotNull(uiState.product).id) },
                 onDelete = { showDeleteDialog = true },
                 modifier = Modifier
@@ -148,7 +150,7 @@ fun ProductDetailScreen(
     }
 
     val product = uiState.product
-    if (showDeleteDialog && product != null) {
+    if (showDeleteDialog && product != null && canEdit) {
         AlertDialog(
             onDismissRequest = {
                 if (!uiState.isDeleting) showDeleteDialog = false
@@ -190,6 +192,7 @@ private fun ProductDetails(
     product: Product,
     isDeleting: Boolean,
     deleteFailed: Boolean,
+    canEdit: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -232,37 +235,47 @@ private fun ProductDetails(
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Button(
-            onClick = onEdit,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
-            enabled = !isDeleting,
-        ) {
-            Icon(imageVector = Icons.Default.Edit, contentDescription = null)
+        if (!canEdit) {
             Text(
-                text = stringResource(R.string.edit),
-                modifier = Modifier.padding(start = 8.dp),
+                text = stringResource(R.string.offline_edit_disabled),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
 
-        OutlinedButton(
-            onClick = onDelete,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
-            enabled = !isDeleting,
-            colors = ButtonDefaults.outlinedButtonColors(
-                contentColor = MaterialTheme.colorScheme.error,
-            ),
-        ) {
-            Icon(imageVector = Icons.Default.Delete, contentDescription = null)
-            Text(
-                text = stringResource(R.string.delete),
-                modifier = Modifier.padding(start = 8.dp),
-            )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (canEdit) {
+            Button(
+                onClick = onEdit,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                enabled = !isDeleting,
+            ) {
+                Icon(imageVector = Icons.Default.Edit, contentDescription = null)
+                Text(
+                    text = stringResource(R.string.edit),
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+
+            OutlinedButton(
+                onClick = onDelete,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                enabled = !isDeleting,
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+            ) {
+                Icon(imageVector = Icons.Default.Delete, contentDescription = null)
+                Text(
+                    text = stringResource(R.string.delete),
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
         }
     }
 }

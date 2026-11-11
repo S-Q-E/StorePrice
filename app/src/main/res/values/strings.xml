@@ -37,7 +37,7 @@
 
     <string name="catalog_title">Товары</string>
     <string name="product_detail_title">Товар</string>
-    <string name="catalog_local_badge">Локальный каталог</string>
+    <string name="catalog_local_badge">Общий каталог</string>
     <string name="catalog_offline_banner">Нет связи: показаны сохранённые данные</string>
     <string name="search_placeholder">Название или штрихкод</string>
     <string name="search_clear">Очистить поиск</string>
@@ -102,5 +102,8 @@
     <string name="error_barcode_too_long">Штрихкод слишком длинный</string>
     <string name="error_barcode_duplicate">Такой штрихкод уже есть у другого товара</string>
     <string name="error_save_failed">Не удалось сохранить товар. Попробуйте ещё раз.</string>
+    <string name="error_save_offline">Нет соединения с сервером. Проверьте интернет и повторите.</string>
+    <string name="error_save_conflict">Товар изменён другим сотрудником. Обновите каталог и повторите.</string>
+    <string name="offline_edit_disabled">Нет связи: изменения временно недоступны.</string>
     <string name="error_delete_failed">Не удалось удалить товар. Попробуйте ещё раз.</string>
 </resources>

@@ -165,9 +165,16 @@ private fun ProductForm(
             .padding(horizontal = 20.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        if (uiState.formError == EditorFormError.SAVE_FAILED) {
+        val formError = uiState.formError
+        if (formError != null && formError != EditorFormError.PRODUCT_NOT_FOUND) {
             Text(
-                text = stringResource(R.string.error_save_failed),
+                text = stringResource(
+                    when (formError) {
+                        EditorFormError.NETWORK_UNAVAILABLE -> R.string.error_save_offline
+                        EditorFormError.VERSION_CONFLICT -> R.string.error_save_conflict
+                        else -> R.string.error_save_failed
+                    },
+                ),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodyMedium,
             )

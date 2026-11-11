@@ -21,6 +21,8 @@ import kotlinx.coroutines.launch
 enum class EditorFormError {
     PRODUCT_NOT_FOUND,
     SAVE_FAILED,
+    NETWORK_UNAVAILABLE,
+    VERSION_CONFLICT,
 }
 
 data class ProductEditorUiState(
@@ -144,6 +146,32 @@ class ProductEditorViewModel(
                                 isSaving = false,
                                 formError = EditorFormError.PRODUCT_NOT_FOUND,
                             )
+
+                            SaveProductResult.VersionConflict -> state.copy(
+                                isSaving = false,
+                                formError = EditorFormError.VERSION_CONFLICT,
+                            )
+
+                            SaveProductResult.NetworkUnavailable -> state.copy(
+                                isSaving = false,
+                                formError = EditorFormError.NETWORK_UNAVAILABLE,
+                            )
+
+                            SaveProductResult.ServerError -> state.copy(
+                                isSaving = false,
+                                formError = EditorFormError.SAVE_FAILED,
+                            )
+                        }
+                    }
+
+                    if (result is SaveProductResult.VersionConflict) {
+                        try {
+                            repository.syncCatalog()
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (_: Exception) {
+                            // The form keeps the user's input; the next save retries
+                            // with the refreshed version if synchronization worked.
                         }
                     }
                 }
