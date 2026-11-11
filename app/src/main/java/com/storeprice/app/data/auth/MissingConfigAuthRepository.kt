@@ -28,4 +28,6 @@ class MissingConfigAuthRepository : AuthRepository {
     }
 
     override suspend fun retrySession() = Unit
+
+    override suspend fun refreshSessionSilently() = Unit
 }

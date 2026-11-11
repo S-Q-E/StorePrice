@@ -159,6 +159,26 @@ class AuthViewModelTest {
         assertEquals("", viewModel.uiState.value.password)
     }
 
+    @Test
+    fun `silent refresh on resume is throttled to five minutes`() = runTest {
+        var now = 1_000_000L
+        val repository = FakeAuthRepository()
+        val viewModel = AuthViewModel(repository, clock = { now })
+        val fiveMinutes = 5L * 60L * 1000L
+
+        now += fiveMinutes - 1
+        viewModel.onAppResumed()
+        assertEquals(0, repository.refreshSilentlyCalls)
+
+        now += 1
+        viewModel.onAppResumed()
+        assertEquals(1, repository.refreshSilentlyCalls)
+
+        now += fiveMinutes - 1
+        viewModel.onAppResumed()
+        assertEquals(1, repository.refreshSilentlyCalls)
+    }
+
     private class FakeAuthRepository(
         initialState: AuthState = AuthState.SignedOut(),
         private val signedInState: AuthState? = null,
@@ -175,6 +195,8 @@ class AuthViewModelTest {
         var signOutCalls: Int = 0
             private set
         var retryCalls: Int = 0
+            private set
+        var refreshSilentlyCalls: Int = 0
             private set
 
         override suspend fun signIn(phone: String, password: String): SignInResult {
@@ -193,6 +215,10 @@ class AuthViewModelTest {
 
         override suspend fun retrySession() {
             retryCalls += 1
+        }
+
+        override suspend fun refreshSessionSilently() {
+            refreshSilentlyCalls += 1
         }
     }
 }

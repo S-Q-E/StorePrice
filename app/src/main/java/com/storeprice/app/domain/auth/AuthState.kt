@@ -15,10 +15,19 @@ sealed interface AuthState {
     /** Пользователь не авторизован. [notice] объясняет причину, если вход прервался. */
     data class SignedOut(val notice: AuthNotice? = null) : AuthState
 
-    /** Сессия действительна, профиль активен. */
-    data class SignedIn(val employee: EmployeeProfile) : AuthState
+    /**
+     * Сессия действительна, профиль активен.
+     *
+     * [isOffline] = `true`, если сервер временно недоступен, а профиль взят из
+     * локального кэша. Каталог остаётся доступен, но данные могут быть не самыми
+     * свежими.
+     */
+    data class SignedIn(
+        val employee: EmployeeProfile,
+        val isOffline: Boolean = false,
+    ) : AuthState
 
-    /** Сессия есть, но профиль временно не удалось проверить. */
+    /** Сессия есть, но профиль временно не удалось проверить, а кэша нет. */
     data class Unavailable(val reason: AuthUnavailableReason) : AuthState
 }
 

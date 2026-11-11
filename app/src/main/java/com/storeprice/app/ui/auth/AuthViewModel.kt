@@ -42,10 +42,13 @@ data class AuthUiState(
 
 class AuthViewModel(
     private val repository: AuthRepository,
+    private val clock: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
+
+    private var lastSilentRefreshAtMillis = clock()
 
     init {
         viewModelScope.launch {
@@ -127,7 +130,25 @@ class AuthViewModel(
         }
     }
 
+    /**
+     * Тихо перепроверяет сессию при возврате приложения на передний план.
+     *
+     * Не чаще одного раза в пять минут, чтобы не создавать лишнюю сетевую
+     * нагрузку. Ошибки обрабатываются репозиторием: при наличии свежего кэша
+     * каталог остаётся доступен в офлайн-режиме.
+     */
+    fun onAppResumed() {
+        val now = clock()
+        if (now - lastSilentRefreshAtMillis < SILENT_REFRESH_INTERVAL_MILLIS) return
+        lastSilentRefreshAtMillis = now
+        viewModelScope.launch {
+            repository.refreshSessionSilently()
+        }
+    }
+
     companion object {
+        private const val SILENT_REFRESH_INTERVAL_MILLIS = 5L * 60L * 1000L
+
         fun factory(repository: AuthRepository): ViewModelProvider.Factory = viewModelFactory {
             initializer { AuthViewModel(repository) }
         }

@@ -59,6 +59,15 @@ import com.storeprice.app.domain.model.EmployeeRole
 import com.storeprice.app.domain.model.Product
 import com.storeprice.app.ui.rememberProductRepository
 
+/**
+ * Каталог товаров.
+ *
+ * @param isOffline если `true`, над списком показывается баннер о сохранённых
+ * данных.
+ * @param canEdit временный флаг: сейчас всегда `true`, потому что каталог
+ * полностью локальный. После подключения Supabase в офлайне редактирование
+ * нужно ограничить или ставить изменения в очередь.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProductListScreen(
@@ -68,6 +77,8 @@ fun ProductListScreen(
     onScanBarcode: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
+    isOffline: Boolean = false,
+    canEdit: Boolean = true,
     viewModel: ProductListViewModel = viewModel(
         factory = ProductListViewModel.factory(rememberProductRepository()),
     ),
@@ -138,13 +149,15 @@ fun ProductListScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onAddProduct,
-                icon = {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = null)
-                },
-                text = { Text(stringResource(R.string.add_product)) },
-            )
+            if (canEdit) {
+                ExtendedFloatingActionButton(
+                    onClick = onAddProduct,
+                    icon = {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = null)
+                    },
+                    text = { Text(stringResource(R.string.add_product)) },
+                )
+            }
         },
     ) { innerPadding ->
         Column(
@@ -189,11 +202,16 @@ fun ProductListScreen(
                 }
             }
 
+            if (isOffline) {
+                OfflineBanner()
+            }
+
             when {
                 uiState.isLoading -> LoadingState()
                 uiState.products.isEmpty() -> EmptyCatalogState(
                     hasQuery = uiState.query.isNotBlank(),
                     onAddProduct = onAddProduct,
+                    canEdit = canEdit,
                 )
 
                 else -> LazyColumn(
@@ -299,6 +317,22 @@ private fun ProductRow(
 }
 
 @Composable
+private fun OfflineBanner() {
+    Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = stringResource(R.string.catalog_offline_banner),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.bodySmall,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+@Composable
 private fun LoadingState() {
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -312,6 +346,7 @@ private fun LoadingState() {
 private fun EmptyCatalogState(
     hasQuery: Boolean,
     onAddProduct: () -> Unit,
+    canEdit: Boolean,
 ) {
     Column(
         modifier = Modifier
@@ -341,7 +376,7 @@ private fun EmptyCatalogState(
             textAlign = TextAlign.Center,
         )
 
-        if (!hasQuery) {
+        if (!hasQuery && canEdit) {
             Spacer(modifier = Modifier.height(24.dp))
             Button(onClick = onAddProduct) {
                 Icon(imageVector = Icons.Default.Add, contentDescription = null)

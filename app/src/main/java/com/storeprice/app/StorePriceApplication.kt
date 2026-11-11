@@ -2,6 +2,7 @@ package com.storeprice.app
 
 import android.app.Application
 import com.storeprice.app.data.auth.AuthRepository
+import com.storeprice.app.data.auth.CachedProfileStore
 import com.storeprice.app.data.auth.MissingConfigAuthRepository
 import com.storeprice.app.data.auth.SharedPreferencesSessionManager
 import com.storeprice.app.data.auth.SupabaseAuthRepository
@@ -36,17 +37,22 @@ class AppContainer(application: Application) {
             return MissingConfigAuthRepository()
         }
 
+        val sessionManager = SharedPreferencesSessionManager(application)
         val supabase = createSupabaseClient(
             supabaseUrl = BuildConfig.SUPABASE_URL,
             supabaseKey = BuildConfig.SUPABASE_ANON_KEY,
         ) {
             install(Auth) {
-                sessionManager = SharedPreferencesSessionManager(application)
+                this.sessionManager = sessionManager
                 codeVerifierCache = MemoryCodeVerifierCache()
             }
             install(Postgrest)
         }
 
-        return SupabaseAuthRepository(supabase)
+        return SupabaseAuthRepository(
+            supabase = supabase,
+            profileCache = CachedProfileStore(application),
+            sessionManager = sessionManager,
+        )
     }
 }

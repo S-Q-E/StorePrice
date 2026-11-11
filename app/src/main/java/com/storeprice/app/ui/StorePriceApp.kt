@@ -2,8 +2,12 @@ package com.storeprice.app.ui
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -46,6 +50,19 @@ fun StorePriceApp(modifier: Modifier = Modifier) {
         factory = AuthViewModel.factory(rememberAuthRepository()),
     )
     val uiState by authViewModel.uiState.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner, authViewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                authViewModel.onAppResumed()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     when (val authState = uiState.authState) {
         AuthState.Initializing -> AuthLoadingScreen(modifier = modifier)
@@ -60,6 +77,11 @@ fun StorePriceApp(modifier: Modifier = Modifier) {
 
         is AuthState.SignedIn -> CatalogApp(
             employee = authState.employee,
+            isOffline = authState.isOffline,
+            // На этапе 4 каталог ещё локальный, поэтому редактирование разрешено.
+            // После подключения Supabase в офлайне его нужно ограничить или
+            // ставить изменения в очередь.
+            canEdit = true,
             onSignOut = authViewModel::signOut,
             modifier = modifier,
         )
@@ -77,6 +99,8 @@ fun StorePriceApp(modifier: Modifier = Modifier) {
 private fun CatalogApp(
     employee: EmployeeProfile,
     onSignOut: () -> Unit,
+    isOffline: Boolean,
+    canEdit: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
@@ -89,6 +113,8 @@ private fun CatalogApp(
         composable(Routes.PRODUCTS) {
             ProductListScreen(
                 employee = employee,
+                isOffline = isOffline,
+                canEdit = canEdit,
                 onAddProduct = { navController.navigate(Routes.newProduct()) },
                 onProductClick = { id ->
                     navController.navigate(Routes.productDetail(id))
