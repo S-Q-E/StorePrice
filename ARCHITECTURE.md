@@ -202,7 +202,7 @@ profiles (PostgREST, RLS) → Employee(role, is_active)
 
 ### 4.1. Схема Supabase (этап 4)
 
-Миграции: `supabase/migrations/202611100001_schema.sql` и `202611100002_rls_and_rpc.sql` применены. `202611100003_hardening.sql` и `202611120004_realtime.sql` подготовлены, но к живому проекту не применены. Инструкция: `docs/SUPABASE_SETUP.md`.
+Миграции: `supabase/migrations/202611100001_schema.sql`, `202611100002_rls_and_rpc.sql` и `202611120004_realtime.sql` применены. `202611100003_hardening.sql` подготовлена, но к живому проекту не применена; publication `supabase_realtime` для `products` проверена. Инструкция: `docs/SUPABASE_SETUP.md`.
 
 | Таблица | Назначение | Ключевые правила |
 |---|---|---|
@@ -223,7 +223,7 @@ profiles (PostgREST, RLS) → Employee(role, is_active)
 - RLS включена на всех таблицах; `anon` не имеет прав; чтение каталога доступно только активным сотрудникам.
 - `audit_log` и `price_history` защищены от изменения обычными ролями; Service Role допустим только для обслуживания.
 
-На 2026-11-12 миграции `001`/`002` применены к живому Supabase: таблицы, RLS, RPC и триггеры созданы, Phone provider включён, публичная регистрация отключена, первый администратор создан. Вход, общий каталог, запись через RPC и офлайн-режим проверены пользователем на телефоне. Android-клиент использует Supabase Auth, PostgREST для профиля и каталога, RPC для записи, Realtime как триггер синхронизации; Room остаётся источником данных для UI. Миграции `003_hardening.sql` и `004_realtime.sql` подготовлены, но к живому проекту ещё не применены.
+На 2026-11-12 миграции `001`/`002` применены к живому Supabase: таблицы, RLS, RPC и триггеры созданы, Phone provider включён, публичная регистрация отключена, первый администратор создан. Вход, общий каталог, запись через RPC и офлайн-режим проверены пользователем на телефоне. Android-клиент использует Supabase Auth, PostgREST для профиля и каталога, RPC для записи, Realtime как триггер синхронизации; Room остаётся источником данных для UI. Миграция `004_realtime.sql` применена и publication проверена; `003_hardening.sql` ещё не применена.
 
 ## 5. UI и навигация
 
@@ -332,7 +332,7 @@ app/src/test/java/com/storeprice/app
 | Локальная БД | Room 2.6.1 + KSP 2.0.21-1.0.28 | работает |
 | Тесты | JUnit 4, Robolectric 4.14.1, coroutines-test | работает |
 | Камера | CameraX 1.4.2 + ML Kit Barcode Scanning 17.3.0 | работает; основной сценарий проверен на телефоне |
-| Backend | Supabase Auth/Postgres/Realtime/RLS | миграции `001`/`002` и RLS/RPC применены; вход и каталог проверены на телефоне; `003` и `004` ожидают отдельного применения |
+| Backend | Supabase Auth/Postgres/Realtime/RLS | миграции `001`/`002`/`004` и RLS/RPC применены; вход и каталог проверены на телефоне; `003` ожидает отдельного применения; publication `products` проверена, доставка Realtime на двух устройствах ещё нет |
 | Android Auth | `supabase-kt` 3.0.0 (`auth-kt`, `postgrest-kt`), Ktor OkHttp 3.0.0-rc-1 | вход, сессия, профиль, офлайн-кэш и выход реализованы и проверены на телефоне |
 | Синхронизация | Repository + Room-first sync, `updated_at`-курсор, Realtime, NetworkMonitor | реализовано локально; живая проверка двух устройств и Realtime впереди |
 | Фоновая синхронизация | WorkManager | план; в текущем объёме повтор только в foreground |
