@@ -34,8 +34,8 @@ android {
         applicationId = "com.storeprice.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -81,6 +81,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
 
@@ -103,6 +104,7 @@ dependencies {
 
     implementation(libs.supabase.auth)
     implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.realtime)
     implementation(libs.ktor.client.okhttp)
 
     testImplementation(libs.junit)

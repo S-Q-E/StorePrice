@@ -7,6 +7,8 @@ import com.storeprice.app.data.local.StorePriceDatabase
 import com.storeprice.app.data.remote.ProductRemote
 import com.storeprice.app.data.remote.ProductRemoteException
 import com.storeprice.app.data.remote.RemoteProduct
+import com.storeprice.app.data.sync.SyncMetadataStore
+import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -27,9 +29,9 @@ class SyncingProductRepositoryTest {
     private lateinit var database: StorePriceDatabase
     private lateinit var local: ProductRepository
     private lateinit var remote: FakeProductRemote
+    private lateinit var metadata: FakeSyncMetadataStore
     private lateinit var repository: SyncingProductRepository
     private var now = 1_000L
-    private var nextId = 0
 
     @Before
     fun setUp() {
@@ -40,15 +42,11 @@ class SyncingProductRepositoryTest {
         local = RoomProductRepository(
             dao = database.productDao(),
             clock = { now },
-            idGenerator = { "local-${nextId++}" },
+            idGenerator = { UUID.randomUUID().toString() },
         )
         remote = FakeProductRemote()
-        repository = SyncingProductRepository(
-            local = local,
-            dao = database.productDao(),
-            database = database,
-            remote = remote,
-        )
+        metadata = FakeSyncMetadataStore()
+        repository = createRepository()
     }
 
     @After
@@ -64,6 +62,8 @@ class SyncingProductRepositoryTest {
         )
         assertEquals(CatalogSyncResult.Success, repository.syncCatalog())
 
+        // Force a full refresh; otherwise the next call is incremental.
+        metadata.cursorMillis = null
         remote.products = listOf(
             remoteProduct(id = "server-1", name = "Серверный товар", isDeleted = true),
             remoteProduct(id = "server-3", name = "Новый товар"),
@@ -79,7 +79,7 @@ class SyncingProductRepositoryTest {
     @Test
     fun `failed sync keeps the local cache`() = runBlocking {
         local.save(null, "Локальный товар", 100, null)
-        remote.fetchError = ProductRemoteException.NetworkUnavailable
+        remote.fetchAllError = ProductRemoteException.NetworkUnavailable
 
         assertEquals(CatalogSyncResult.NetworkUnavailable, repository.syncCatalog())
         assertEquals("Локальный товар", repository.observeProducts("").first().single().name)
@@ -87,12 +87,14 @@ class SyncingProductRepositoryTest {
 
     @Test
     fun `legacy local products are uploaded once before the cache is replaced`() = runBlocking {
-        local.save(null, "Локальный товар", 100, "00123")
+        val localId = (local.save(null, "Локальный товар", 100, "00123")
+            as SaveProductResult.Success).id
 
         assertEquals(CatalogSyncResult.Success, repository.syncCatalog())
 
         assertEquals("Локальный товар", remote.lastCreate?.name)
         assertEquals("00123", remote.lastCreate?.barcode)
+        assertEquals(localId, remote.lastCreate?.clientId)
         assertEquals(listOf("server-created"), repository.observeProducts("").first().map { it.id })
         assertEquals(1, remote.products.size)
     }
@@ -108,6 +110,114 @@ class SyncingProductRepositoryTest {
 
         assertNull(remote.lastCreate)
         assertEquals(listOf("server-1"), repository.observeProducts("").first().map { it.id })
+    }
+
+    @Test
+    fun `incremental sync applies changed rows and advances the cursor`() = runBlocking {
+        remote.products = listOf(
+            remoteProduct(id = "server-1", name = "Первый", updatedAt = 1_000),
+            remoteProduct(id = "server-2", name = "Второй", updatedAt = 1_000),
+        )
+        assertEquals(CatalogSyncResult.Success, repository.syncCatalog())
+        assertEquals(1_000L, metadata.cursorMillis)
+
+        remote.products = listOf(
+            remoteProduct(id = "server-1", name = "Первый", updatedAt = 1_000),
+            remoteProduct(id = "server-2", name = "Второй обновлён", updatedAt = 2_000),
+            remoteProduct(id = "server-3", name = "Третий", updatedAt = 2_500),
+        )
+        assertEquals(CatalogSyncResult.Success, repository.syncCatalog())
+
+        assertEquals(listOf(1_000L), remote.fetchSinceCalls)
+        assertEquals(1, remote.fetchAllCalls)
+        val byId = repository.observeProducts("").first().associateBy { it.id }
+        assertEquals("Второй обновлён", byId["server-2"]?.name)
+        assertEquals("Третий", byId["server-3"]?.name)
+        assertEquals(2_500L, metadata.cursorMillis)
+    }
+
+    @Test
+    fun `failed incremental sync keeps local rows and the cursor`() = runBlocking {
+        remote.products = listOf(
+            remoteProduct(id = "server-1", name = "До ошибки", updatedAt = 1_000),
+        )
+        assertEquals(CatalogSyncResult.Success, repository.syncCatalog())
+        remote.fetchSinceError = ProductRemoteException.NetworkUnavailable
+
+        assertEquals(CatalogSyncResult.NetworkUnavailable, repository.syncCatalog())
+
+        assertEquals(1_000L, metadata.cursorMillis)
+        assertEquals("До ошибки", repository.observeProduct("server-1").first()?.name)
+    }
+
+    @Test
+    fun `read retries transient failures with exponential backoff`() = runBlocking {
+        val delays = mutableListOf<Long>()
+        val retrying = createRepository(
+            retryPolicy = SyncRetryPolicy(
+                maxAttempts = 3,
+                initialDelayMillis = 100,
+                maxDelayMillis = 400,
+            ),
+            sleep = { delays += it },
+        )
+        remote.products = listOf(remoteProduct(id = "server-1", name = "Товар"))
+        remote.fetchAllFailuresRemaining = 2
+
+        assertEquals(CatalogSyncResult.Success, retrying.syncCatalog())
+        assertEquals(listOf(100L, 200L), delays)
+        assertEquals(3, remote.fetchAllCalls)
+    }
+
+    @Test
+    fun `read retry stops after the configured attempt limit`() = runBlocking {
+        val delays = mutableListOf<Long>()
+        val retrying = createRepository(
+            retryPolicy = SyncRetryPolicy(
+                maxAttempts = 3,
+                initialDelayMillis = 100,
+                maxDelayMillis = 400,
+            ),
+            sleep = { delays += it },
+        )
+        remote.fetchAllFailuresRemaining = 10
+
+        assertEquals(CatalogSyncResult.NetworkUnavailable, retrying.syncCatalog())
+        assertEquals(3, remote.fetchAllCalls)
+        assertEquals(listOf(100L, 200L), delays)
+    }
+
+    @Test
+    fun `unauthorized read is not retried`() = runBlocking {
+        val delays = mutableListOf<Long>()
+        val retrying = createRepository(
+            retryPolicy = SyncRetryPolicy(maxAttempts = 3),
+            sleep = { delays += it },
+        )
+        remote.fetchAllError = ProductRemoteException.Unauthorized
+
+        assertEquals(CatalogSyncResult.Unauthorized, retrying.syncCatalog())
+        assertEquals(1, remote.fetchAllCalls)
+        assertTrue(delays.isEmpty())
+    }
+
+    @Test
+    fun `sync state exposes the last confirmed time and failure`() = runBlocking {
+        now = 5_000
+        remote.products = listOf(remoteProduct(id = "server-1", name = "Товар", updatedAt = 1_000))
+
+        assertEquals(CatalogSyncResult.Success, repository.syncCatalog())
+        val success = repository.observeSyncState().first()
+        assertFalse(success.isSyncing)
+        assertEquals(5_000L, success.lastSyncedAtMillis)
+        assertEquals(CatalogSyncResult.Success, success.lastResult)
+        assertEquals(5_000L, metadata.lastSyncedAtMillis)
+
+        remote.fetchSinceError = ProductRemoteException.NetworkUnavailable
+        assertEquals(CatalogSyncResult.NetworkUnavailable, repository.syncCatalog())
+        val failure = repository.observeSyncState().first()
+        assertEquals(5_000L, failure.lastSyncedAtMillis)
+        assertEquals(CatalogSyncResult.NetworkUnavailable, failure.lastResult)
     }
 
     @Test
@@ -190,6 +300,9 @@ class SyncingProductRepositoryTest {
             SaveProductResult.NetworkUnavailable,
             repository.save(null, "Товар", 100, null),
         )
+        // Writes must not be retried automatically: a lost response may mean
+        // the server already committed the row.
+        assertEquals(1, remote.createCalls)
     }
 
     @Test
@@ -216,12 +329,39 @@ class SyncingProductRepositoryTest {
         assertEquals("Товар", repository.observeProduct("server-1").first()?.name)
     }
 
+    private fun createRepository(
+        retryPolicy: SyncRetryPolicy = SyncRetryPolicy(maxAttempts = 1),
+        sleep: suspend (Long) -> Unit = {},
+    ): SyncingProductRepository = SyncingProductRepository(
+        local = local,
+        dao = database.productDao(),
+        database = database,
+        remote = remote,
+        metadata = metadata,
+        clock = { now },
+        retryPolicy = retryPolicy,
+        sleep = sleep,
+    )
+
+    private class FakeSyncMetadataStore(
+        override var cursorMillis: Long? = null,
+        override var lastSyncedAtMillis: Long? = null,
+    ) : SyncMetadataStore
+
     private class FakeProductRemote : ProductRemote {
         var products: List<RemoteProduct> = emptyList()
-        var fetchError: ProductRemoteException? = null
+        var fetchAllError: ProductRemoteException? = null
+        var fetchSinceError: ProductRemoteException? = null
+        var fetchAllFailuresRemaining = 0
+        var fetchSinceFailuresRemaining = 0
+        var fetchAllCalls = 0
+            private set
+        val fetchSinceCalls = mutableListOf<Long>()
         var createError: ProductRemoteException? = null
         var updateError: ProductRemoteException? = null
         var softDeleteError: ProductRemoteException? = null
+        var createCalls = 0
+            private set
         var createResult: (String, Long, String?) -> RemoteProduct = { name, price, barcode ->
             remoteProduct(id = "server-created", name = name, priceKzt = price, barcode = barcode)
         }
@@ -247,17 +387,34 @@ class SyncingProductRepositoryTest {
             private set
 
         override suspend fun fetchAll(): List<RemoteProduct> {
-            fetchError?.let { throw it }
+            fetchAllCalls++
+            if (fetchAllFailuresRemaining > 0) {
+                fetchAllFailuresRemaining--
+                throw ProductRemoteException.NetworkUnavailable
+            }
+            fetchAllError?.let { throw it }
             return products
+        }
+
+        override suspend fun fetchSince(cursorMillis: Long): List<RemoteProduct> {
+            fetchSinceCalls += cursorMillis
+            if (fetchSinceFailuresRemaining > 0) {
+                fetchSinceFailuresRemaining--
+                throw ProductRemoteException.NetworkUnavailable
+            }
+            fetchSinceError?.let { throw it }
+            return products.filter { it.updatedAt >= cursorMillis }
         }
 
         override suspend fun create(
             name: String,
             priceKzt: Long,
             barcode: String?,
+            clientId: String?,
         ): RemoteProduct {
+            createCalls++
             createError?.let { throw it }
-            lastCreate = CreateCall(name, priceKzt, barcode)
+            lastCreate = CreateCall(name, priceKzt, barcode, clientId)
             val created = createResult(name, priceKzt, barcode)
             products = products + created
             return created
@@ -293,6 +450,7 @@ class SyncingProductRepositoryTest {
         val name: String,
         val priceKzt: Long,
         val barcode: String?,
+        val clientId: String?,
     )
 
     private data class UpdateCall(

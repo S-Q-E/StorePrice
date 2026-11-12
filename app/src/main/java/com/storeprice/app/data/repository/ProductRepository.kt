@@ -9,6 +9,7 @@ import java.text.Collator
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -29,6 +30,20 @@ sealed interface CatalogSyncResult {
     data object NetworkUnavailable : CatalogSyncResult
     data object ServerError : CatalogSyncResult
 }
+
+/**
+ * Observable synchronization state shared by the catalog screen and the
+ * background refresh triggers.
+ *
+ * [lastSyncedAtMillis] survives process restarts in private preferences, while
+ * [lastResult] describes the most recent attempt and [isSyncing] is true only
+ * while a request is in flight.
+ */
+data class CatalogSyncState(
+    val isSyncing: Boolean = false,
+    val lastSyncedAtMillis: Long? = null,
+    val lastResult: CatalogSyncResult? = null,
+)
 
 interface ProductRepository {
     fun observeProducts(query: String): Flow<List<Product>>
@@ -57,6 +72,14 @@ interface ProductRepository {
      * during and after the request.
      */
     suspend fun syncCatalog(): CatalogSyncResult = CatalogSyncResult.NotConfigured
+
+    /**
+     * Exposes synchronization progress and the last confirmed server sync time.
+     *
+     * Local-only repositories return an idle state, so the same UI works without
+     * Supabase configuration.
+     */
+    fun observeSyncState(): Flow<CatalogSyncState> = flowOf(CatalogSyncState())
 }
 
 class RoomProductRepository(

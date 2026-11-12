@@ -38,7 +38,15 @@
     <string name="catalog_title">Товары</string>
     <string name="product_detail_title">Товар</string>
     <string name="catalog_local_badge">Общий каталог</string>
-    <string name="catalog_offline_banner">Нет связи: показаны сохранённые данные</string>
+    <string name="catalog_refresh">Обновить каталог</string>
+    <string name="catalog_offline_banner">Нет связи: показаны сохранённые данные, цены могут быть устаревшими</string>
+    <string name="catalog_offline_banner_with_time">Нет связи: сохранённые данные от %1$s, цены могут быть устаревшими</string>
+    <string name="catalog_last_sync">Обновлено: %1$s</string>
+    <string name="catalog_never_synced">Каталог ещё не синхронизирован</string>
+    <string name="catalog_sync_in_progress">Обновление каталога…</string>
+    <string name="catalog_sync_failed">Не удалось обновить каталог. Показаны сохранённые данные.</string>
+    <string name="catalog_sync_failed_with_time">Не удалось обновить каталог. Сохранённые данные от %1$s.</string>
+    <string name="catalog_sync_unauthorized">Не удалось обновить каталог: проверьте вход.</string>
     <string name="search_placeholder">Название или штрихкод</string>
     <string name="search_clear">Очистить поиск</string>
     <string name="add_product">Добавить товар</string>
@@ -64,7 +72,7 @@
     <string name="scanner_back_to_catalog">Вернуться в каталог</string>
 
     <string name="empty_catalog_title">Каталог пуст</string>
-    <string name="empty_catalog_description">Добавьте первый товар — он сохранится на этом устройстве.</string>
+    <string name="empty_catalog_description">Добавьте первый товар — он сохранится в общем каталоге.</string>
     <string name="empty_search_title">Ничего не найдено</string>
     <string name="empty_search_description">Проверьте название или штрихкод и попробуйте снова.</string>
 

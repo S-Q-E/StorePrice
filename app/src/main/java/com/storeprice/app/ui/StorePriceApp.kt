@@ -53,6 +53,7 @@ fun StorePriceApp(modifier: Modifier = Modifier) {
         factory = AuthViewModel.factory(rememberAuthRepository()),
     )
     val uiState by authViewModel.uiState.collectAsStateWithLifecycle()
+    val networkAvailable = rememberNetworkAvailable()
     val lifecycleOwner = LocalLifecycleOwner.current
 
     DisposableEffect(lifecycleOwner, authViewModel) {
@@ -78,15 +79,18 @@ fun StorePriceApp(modifier: Modifier = Modifier) {
             modifier = modifier,
         )
 
-        is AuthState.SignedIn -> CatalogApp(
-            employee = authState.employee,
-            isOffline = authState.isOffline,
-            // Первая версия общей базы не ставит изменения в очередь: без
-            // подтверждённого онлайн-сеанса редактирование скрыто.
-            canEdit = !authState.isOffline,
-            onSignOut = authViewModel::signOut,
-            modifier = modifier,
-        )
+        is AuthState.SignedIn -> {
+            val isOffline = authState.isOffline || !networkAvailable
+            CatalogApp(
+                employee = authState.employee,
+                isOffline = isOffline,
+                // Первая версия общей базы не ставит изменения в очередь: без
+                // подтверждённого онлайн-сеанса редактирование скрыто.
+                canEdit = !isOffline,
+                onSignOut = authViewModel::signOut,
+                modifier = modifier,
+            )
+        }
 
         is AuthState.Unavailable -> SessionUnavailableScreen(
             reason = authState.reason,

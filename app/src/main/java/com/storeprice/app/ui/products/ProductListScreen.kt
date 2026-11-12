@@ -1,5 +1,6 @@
 package com.storeprice.app.ui.products
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,15 +11,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -54,6 +58,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.storeprice.app.R
 import com.storeprice.app.core.formatKzt
+import com.storeprice.app.core.formatTimestamp
+import com.storeprice.app.data.repository.CatalogSyncResult
 import com.storeprice.app.domain.model.EmployeeProfile
 import com.storeprice.app.domain.model.EmployeeRole
 import com.storeprice.app.domain.model.Product
@@ -91,6 +97,22 @@ fun ProductListScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.catalog_title)) },
                 actions = {
+                    IconButton(
+                        onClick = viewModel::refresh,
+                        enabled = !uiState.isSyncing,
+                    ) {
+                        if (uiState.isSyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = stringResource(R.string.catalog_refresh),
+                            )
+                        }
+                    }
                     IconButton(onClick = onScanBarcode) {
                         Icon(
                             painter = painterResource(R.drawable.ic_barcode_scan),
@@ -201,9 +223,10 @@ fun ProductListScreen(
                 }
             }
 
-            if (isOffline) {
-                OfflineBanner()
-            }
+            SyncStatusBanner(
+                uiState = uiState,
+                isOffline = isOffline,
+            )
 
             when {
                 uiState.isLoading -> LoadingState()
@@ -316,18 +339,77 @@ private fun ProductRow(
 }
 
 @Composable
-private fun OfflineBanner() {
+private fun SyncStatusBanner(
+    uiState: ProductListUiState,
+    isOffline: Boolean,
+) {
+    val hasProblem = isOffline ||
+        uiState.syncResult == CatalogSyncResult.NetworkUnavailable ||
+        uiState.syncResult == CatalogSyncResult.Unauthorized ||
+        uiState.syncResult == CatalogSyncResult.ServerError
+    val lastSyncText = uiState.lastSyncedAtMillis?.let { formatTimestamp(it) }
+    val statusText = when {
+        uiState.isSyncing -> stringResource(R.string.catalog_sync_in_progress)
+
+        isOffline || uiState.syncResult == CatalogSyncResult.NetworkUnavailable ->
+            lastSyncText?.let {
+                stringResource(R.string.catalog_offline_banner_with_time, it)
+            } ?: stringResource(R.string.catalog_offline_banner)
+
+        uiState.syncResult == CatalogSyncResult.Unauthorized ->
+            stringResource(R.string.catalog_sync_unauthorized)
+
+        uiState.syncResult == CatalogSyncResult.ServerError ->
+            lastSyncText?.let {
+                stringResource(R.string.catalog_sync_failed_with_time, it)
+            } ?: stringResource(R.string.catalog_sync_failed)
+
+        lastSyncText != null -> stringResource(R.string.catalog_last_sync, lastSyncText)
+        else -> stringResource(R.string.catalog_never_synced)
+    }
+
     Surface(
-        color = MaterialTheme.colorScheme.tertiaryContainer,
-        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        color = if (hasProblem) {
+            MaterialTheme.colorScheme.tertiaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        contentColor = if (hasProblem) {
+            MaterialTheme.colorScheme.onTertiaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Text(
-            text = stringResource(R.string.catalog_offline_banner),
+        Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-            style = MaterialTheme.typography.bodySmall,
-            textAlign = TextAlign.Center,
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (uiState.isSyncing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(12.dp),
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(
+                            color = if (hasProblem) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                            shape = CircleShape,
+                        ),
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
 }
 

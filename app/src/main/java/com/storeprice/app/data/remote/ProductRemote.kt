@@ -11,6 +11,7 @@ import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.postgrest.result.PostgrestResult
 import io.ktor.client.plugins.HttpRequestTimeoutException
+import java.time.Instant
 import java.time.OffsetDateTime
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
@@ -67,10 +68,25 @@ internal sealed class ProductRemoteException(message: String) : Exception(messag
 internal interface ProductRemote {
     suspend fun fetchAll(): List<RemoteProduct>
 
+    /**
+     * Fetches rows whose server `updated_at` is at or after [cursorMillis].
+     *
+     * The inclusive boundary is intentional: local cursors keep milliseconds,
+     * while PostgreSQL timestamps may contain microseconds. Re-reading a row at
+     * the boundary is cheaper than risking a missed update.
+     */
+    suspend fun fetchSince(cursorMillis: Long): List<RemoteProduct>
+
+    /**
+     * Creates a product. [clientId] is an optional idempotency key used when a
+     * pre-Supabase local row is uploaded: retrying with the same id returns the
+     * already-created row instead of creating a duplicate.
+     */
     suspend fun create(
         name: String,
         priceKzt: Long,
         barcode: String?,
+        clientId: String? = null,
     ): RemoteProduct
 
     suspend fun update(
@@ -103,39 +119,85 @@ internal class SupabaseProductRemote(
     }
 
     override suspend fun fetchAll(): List<RemoteProduct> = execute {
+        fetchPages(cursorMillis = null)
+    }
+
+    override suspend fun fetchSince(cursorMillis: Long): List<RemoteProduct> = execute {
+        fetchPages(cursorMillis)
+    }
+
+    /**
+     * Loads rows with keyset pagination (`id > lastId`) instead of offsets, so a
+     * concurrent insert cannot shift a page boundary and hide a row.
+     */
+    private suspend fun fetchPages(cursorMillis: Long?): List<RemoteProduct> {
         val result = mutableListOf<RemoteProduct>()
-        var offset = 0L
+        var afterId: String? = null
         while (true) {
             val page = supabase.postgrest
                 .from(TABLE_PRODUCTS)
                 .select(Columns.ALL) {
                     order("id", Order.ASCENDING)
-                    range(offset, offset + PAGE_SIZE - 1)
+                    limit(PAGE_SIZE)
+                    if (cursorMillis != null) {
+                        filter {
+                            gte("updated_at", Instant.ofEpochMilli(cursorMillis).toString())
+                        }
+                    }
+                    afterId?.let { lastId ->
+                        filter { gt("id", lastId) }
+                    }
                 }
                 .let { decodeList(it) }
 
+            if (page.isEmpty()) break
             result += page.map { it.toDomain() }
-            if (page.size < PAGE_SIZE) break
-            offset += page.size
+            afterId = page.last().id
         }
-        result
+        return result
     }
 
     override suspend fun create(
         name: String,
         priceKzt: Long,
         barcode: String?,
+        clientId: String?,
     ): RemoteProduct = execute {
-        val result = supabase.postgrest.rpc(
-            function = RPC_CREATE_PRODUCT,
-            parameters = buildJsonObject {
-                put("p_name", name)
-                put("p_price_kzt", priceKzt)
-                put("p_barcode", if (barcode != null) JsonPrimitive(barcode) else JsonNull)
-            },
-        )
+        val result = try {
+            callCreate(name, priceKzt, barcode, clientId)
+        } catch (error: RestException) {
+            // A project that has not applied 003 still exposes the old
+            // four-argument function. The first call cannot have written
+            // anything in that case, so retrying without the key is safe.
+            if (clientId != null && error.isMissingCreateOverload()) {
+                Log.w(
+                    TAG,
+                    "create_product(p_id) is unavailable; retrying without the idempotency key",
+                )
+                callCreate(name, priceKzt, barcode, clientId = null)
+            } else {
+                throw error
+            }
+        }
         decodeSingle(result).toDomain()
     }
+
+    private suspend fun callCreate(
+        name: String,
+        priceKzt: Long,
+        barcode: String?,
+        clientId: String?,
+    ): PostgrestResult = supabase.postgrest.rpc(
+        function = RPC_CREATE_PRODUCT,
+        parameters = buildJsonObject {
+            put("p_name", name)
+            put("p_price_kzt", priceKzt)
+            put("p_barcode", if (barcode != null) JsonPrimitive(barcode) else JsonNull)
+            if (clientId != null) {
+                put("p_id", clientId)
+            }
+        },
+    )
 
     override suspend fun update(
         id: String,
@@ -207,6 +269,13 @@ internal class SupabaseProductRemote(
 
     private fun RestException.toRemoteException(): ProductRemoteException =
         toProductRemoteException()
+
+    private fun RestException.isMissingCreateOverload(): Boolean {
+        val text = listOfNotNull(error, description).joinToString(" ").lowercase(Locale.ROOT)
+        return statusCode == 404 &&
+            text.contains("function") &&
+            text.contains(RPC_CREATE_PRODUCT)
+    }
 
     @Serializable
     private data class SupabaseProductRow(

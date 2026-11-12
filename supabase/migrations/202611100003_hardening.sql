@@ -204,11 +204,17 @@ grant execute on function public.unregister_device_token(text) to authenticated;
 -- 4. Ошибки занятого штрихкода в серверных операциях
 -- ---------------------------------------------------------------------------
 
+-- Старая четырёхаргументная версия заменяется версией с необязательным
+-- клиентским UUID. Он нужен для идемпотентной выгрузки legacy-товаров: если
+-- ответ create потерян, повторный вызов с тем же p_id не создаст дубликат.
+drop function if exists public.create_product(text, bigint, text, text);
+
 create or replace function public.create_product(
     p_name text,
     p_price_kzt bigint,
     p_barcode text default null,
-    p_device_id text default null
+    p_device_id text default null,
+    p_id uuid default null
 )
 returns public.products
 language plpgsql
@@ -239,9 +245,26 @@ begin
 
     perform set_config('storeprice.device_id', coalesce(p_device_id, ''), true);
 
+    if p_id is not null then
+        select *
+        into v_product
+        from public.products
+        where id = p_id;
+
+        if found then
+            if v_product.created_by is distinct from v_uid then
+                raise exception using
+                    errcode = '42501',
+                    message = 'Нельзя использовать чужой идентификатор товара';
+            end if;
+            return v_product;
+        end if;
+    end if;
+
     begin
-        insert into public.products (name, price_kzt, barcode, created_by, updated_by)
+        insert into public.products (id, name, price_kzt, barcode, created_by, updated_by)
         values (
+            coalesce(p_id, gen_random_uuid()),
             btrim(p_name),
             p_price_kzt,
             nullif(btrim(p_barcode), ''),
@@ -251,6 +274,16 @@ begin
         returning * into v_product;
     exception
         when unique_violation then
+            if p_id is not null then
+                select *
+                into v_product
+                from public.products
+                where id = p_id;
+
+                if found and v_product.created_by is not distinct from v_uid then
+                    return v_product;
+                end if;
+            end if;
             raise exception using
                 errcode = '23505',
                 message = 'Штрихкод уже используется активным товаром';
@@ -260,8 +293,16 @@ begin
 end;
 $$;
 
-comment on function public.create_product(text, bigint, text, text) is
-    'Создаёт товар от имени активного сотрудника; штрихкод нормализуется, версия = 1.';
+comment on function public.create_product(text, bigint, text, text, uuid) is
+    'Создаёт товар от имени активного сотрудника; необязательный p_id делает повтор идемпотентным.';
+
+revoke all on function public.create_product(text, bigint, text, text, uuid)
+    from public, anon;
+grant execute on function public.create_product(text, bigint, text, text, uuid)
+    to authenticated;
+
+-- Новый набор аргументов RPC должен попасть в schema cache PostgREST.
+notify pgrst, 'reload schema';
 
 create or replace function public.update_product(
     p_id uuid,
