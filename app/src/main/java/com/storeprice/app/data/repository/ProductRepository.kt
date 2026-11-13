@@ -20,6 +20,7 @@ sealed interface SaveProductResult {
     data object NotFound : SaveProductResult
     data object VersionConflict : SaveProductResult
     data object NetworkUnavailable : SaveProductResult
+    data object Forbidden : SaveProductResult
     data object ServerError : SaveProductResult
 }
 

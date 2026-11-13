@@ -90,6 +90,24 @@ class ScannerViewModelTest {
     }
 
     @Test
+    fun `result can be reset to scan again`() = runTest {
+        val repository = FakeProductRepository(product = null)
+        val viewModel = ScannerViewModel(repository)
+
+        viewModel.onBarcodeDetected("001")
+        assertEquals(
+            ScannerDestination.NewProduct("001"),
+            viewModel.uiState.value.destination,
+        )
+
+        viewModel.resetResult()
+
+        assertNull(viewModel.uiState.value.destination)
+        viewModel.onBarcodeDetected("002")
+        assertEquals(listOf("001", "002"), repository.lookups)
+    }
+
+    @Test
     fun `lookup failure requires an explicit retry`() = runTest {
         val repository = FakeProductRepository(
             product = product(id = "product-1", barcode = "001"),

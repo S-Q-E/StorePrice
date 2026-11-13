@@ -92,7 +92,12 @@ class RemoteProductMappingTest {
         )
         assertEquals(
             ProductRemoteException.Unauthorized,
-            RestException("Учётная запись неактивна или не авторизована", null, 403, "forbidden")
+            RestException("Требуется вход", null, 401, "unauthorized")
+                .toProductRemoteException(),
+        )
+        assertEquals(
+            ProductRemoteException.Forbidden,
+            RestException("Редактировать каталог может только администратор", null, 403, "forbidden")
                 .toProductRemoteException(),
         )
     }

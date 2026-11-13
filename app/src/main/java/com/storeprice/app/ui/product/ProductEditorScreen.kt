@@ -172,6 +172,7 @@ private fun ProductForm(
                     when (formError) {
                         EditorFormError.NETWORK_UNAVAILABLE -> R.string.error_save_offline
                         EditorFormError.VERSION_CONFLICT -> R.string.error_save_conflict
+                        EditorFormError.FORBIDDEN -> R.string.error_save_forbidden
                         else -> R.string.error_save_failed
                     },
                 ),

@@ -113,5 +113,7 @@
     <string name="error_save_offline">Нет соединения с сервером. Проверьте интернет и повторите.</string>
     <string name="error_save_conflict">Товар изменён другим сотрудником. Обновите каталог и повторите.</string>
     <string name="offline_edit_disabled">Нет связи: изменения временно недоступны.</string>
+    <string name="admin_edit_only">Редактировать каталог может только администратор.</string>
+    <string name="error_save_forbidden">Редактировать каталог может только администратор.</string>
     <string name="error_delete_failed">Не удалось удалить товар. Попробуйте ещё раз.</string>
 </resources>

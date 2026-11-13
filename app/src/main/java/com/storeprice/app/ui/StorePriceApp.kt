@@ -4,6 +4,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -20,6 +21,7 @@ import androidx.navigation.navArgument
 import com.storeprice.app.R
 import com.storeprice.app.domain.auth.AuthState
 import com.storeprice.app.domain.model.EmployeeProfile
+import com.storeprice.app.domain.model.EmployeeRole
 import com.storeprice.app.ui.auth.AuthLoadingScreen
 import com.storeprice.app.ui.auth.AuthViewModel
 import com.storeprice.app.ui.auth.LoginScreen
@@ -46,6 +48,10 @@ private object Routes {
     fun editProduct(id: String): String = "product/$id/edit"
     fun productDetail(id: String): String = "product/$id"
 }
+
+/** Каталог редактирует только активный администратор и только при связи. */
+internal fun canEditCatalog(employee: EmployeeProfile, isOffline: Boolean): Boolean =
+    employee.role == EmployeeRole.ADMIN && !isOffline
 
 @Composable
 fun StorePriceApp(modifier: Modifier = Modifier) {
@@ -85,8 +91,9 @@ fun StorePriceApp(modifier: Modifier = Modifier) {
                 employee = authState.employee,
                 isOffline = isOffline,
                 // Первая версия общей базы не ставит изменения в очередь: без
-                // подтверждённого онлайн-сеанса редактирование скрыто.
-                canEdit = !isOffline,
+                // подтверждённого онлайн-сеанса редактирование скрыто. Роль
+                // проверяется и на клиенте, и серверными RPC.
+                canEdit = canEditCatalog(authState.employee, isOffline),
                 onSignOut = authViewModel::signOut,
                 modifier = modifier,
             )
@@ -133,6 +140,7 @@ private fun CatalogApp(
 
         composable(Routes.SCANNER) {
             ScannerScreen(
+                canEdit = canEdit,
                 onBack = { navController.popBackStack() },
                 onExistingProduct = { id ->
                     navController.navigate(Routes.productDetail(id)) {
@@ -147,7 +155,11 @@ private fun CatalogApp(
                     } else {
                         Toast.makeText(
                             context,
-                            R.string.offline_edit_disabled,
+                            if (isOffline) {
+                                R.string.offline_edit_disabled
+                            } else {
+                                R.string.admin_edit_only
+                            },
                             Toast.LENGTH_SHORT,
                         ).show()
                         navController.popBackStack(Routes.SCANNER, inclusive = true)
@@ -166,29 +178,45 @@ private fun CatalogApp(
                 },
             ),
         ) { backStackEntry ->
-            val scannedBarcode = backStackEntry.arguments?.getString("barcode")
-            ProductEditorScreen(
-                productId = null,
-                initialBarcode = scannedBarcode,
-                onBack = { navController.popBackStack() },
-                onSaved = { id ->
-                    navController.navigate(Routes.productDetail(id)) {
-                        popUpTo(Routes.NEW_PRODUCT) { inclusive = true }
+            if (canEdit) {
+                val scannedBarcode = backStackEntry.arguments?.getString("barcode")
+                ProductEditorScreen(
+                    productId = null,
+                    initialBarcode = scannedBarcode,
+                    onBack = { navController.popBackStack() },
+                    onSaved = { id ->
+                        navController.navigate(Routes.productDetail(id)) {
+                            popUpTo(Routes.NEW_PRODUCT) { inclusive = true }
+                        }
+                    },
+                )
+            } else {
+                LaunchedEffect(Unit) {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Routes.PRODUCTS)
                     }
-                },
-            )
+                }
+            }
         }
 
         composable(
             route = Routes.EDIT_PRODUCT,
             arguments = listOf(navArgument("productId") { type = NavType.StringType }),
         ) { backStackEntry ->
-            val productId = requireNotNull(backStackEntry.arguments?.getString("productId"))
-            ProductEditorScreen(
-                productId = productId,
-                onBack = { navController.popBackStack() },
-                onSaved = { _ -> navController.popBackStack() },
-            )
+            if (canEdit) {
+                val productId = requireNotNull(backStackEntry.arguments?.getString("productId"))
+                ProductEditorScreen(
+                    productId = productId,
+                    onBack = { navController.popBackStack() },
+                    onSaved = { _ -> navController.popBackStack() },
+                )
+            } else {
+                LaunchedEffect(Unit) {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Routes.PRODUCTS)
+                    }
+                }
+            }
         }
 
         composable(
@@ -200,6 +228,7 @@ private fun CatalogApp(
                 productId = productId,
                 onBack = { navController.popBackStack() },
                 canEdit = canEdit,
+                isOffline = isOffline,
                 onEdit = { id -> navController.navigate(Routes.editProduct(id)) },
                 onDeleted = {
                     if (!navController.popBackStack(Routes.PRODUCTS, inclusive = false)) {

@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -92,6 +93,7 @@ fun ScannerScreen(
     onExistingProduct: (String) -> Unit,
     onNewProduct: (String) -> Unit,
     modifier: Modifier = Modifier,
+    canEdit: Boolean = true,
     viewModel: ScannerViewModel = viewModel(
         factory = ScannerViewModel.factory(rememberProductRepository()),
     ),
@@ -105,6 +107,7 @@ fun ScannerScreen(
         mutableStateOf(context.hasCameraPermission())
     }
     var permissionRequested by rememberSaveable { mutableStateOf(false) }
+    var unknownBarcode by rememberSaveable { mutableStateOf<String?>(null) }
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -123,10 +126,19 @@ fun ScannerScreen(
         }
     }
 
-    LaunchedEffect(uiState.destination) {
+    LaunchedEffect(uiState.destination, canEdit) {
         when (val destination = uiState.destination) {
             is ScannerDestination.ExistingProduct -> onExistingProduct(destination.productId)
-            is ScannerDestination.NewProduct -> onNewProduct(destination.barcode)
+            is ScannerDestination.NewProduct -> {
+                if (canEdit) {
+                    onNewProduct(destination.barcode)
+                } else {
+                    // Сотрудник без прав видит только результат поиска и не
+                    // получает форму создания даже для неизвестного кода.
+                    unknownBarcode = destination.barcode
+                }
+            }
+
             null -> Unit
         }
     }
@@ -194,6 +206,31 @@ fun ScannerScreen(
                 modifier = contentModifier,
             )
         }
+    }
+
+    if (unknownBarcode != null) {
+        AlertDialog(
+            onDismissRequest = {
+                unknownBarcode = null
+                viewModel.resetResult()
+            },
+            title = { Text(stringResource(R.string.product_not_found)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        unknownBarcode = null
+                        viewModel.resetResult()
+                    },
+                ) {
+                    Text(stringResource(R.string.scanner_retry))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onBack) {
+                    Text(stringResource(R.string.scanner_back_to_catalog))
+                }
+            },
+        )
     }
 }
 

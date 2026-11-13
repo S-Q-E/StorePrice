@@ -86,6 +86,22 @@ class ProductEditorViewModelTest {
     }
 
     @Test
+    fun `forbidden save keeps the form and explains admin-only editing`() = runTest {
+        val repository = FakeProductRepository(
+            saveResult = SaveProductResult.Forbidden,
+        )
+        val viewModel = ProductEditorViewModel(repository, productId = null)
+
+        viewModel.onNameChange("Молоко")
+        viewModel.onPriceChange("100")
+        viewModel.save()
+
+        assertEquals(EditorFormError.FORBIDDEN, viewModel.uiState.value.formError)
+        assertEquals("Молоко", viewModel.uiState.value.name)
+        assertFalse(viewModel.uiState.value.saved)
+    }
+
+    @Test
     fun `version conflict keeps the form and asks to refresh`() = runTest {
         val repository = FakeProductRepository(
             saveResult = SaveProductResult.VersionConflict,

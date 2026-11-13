@@ -100,6 +100,18 @@ class SyncingProductRepositoryTest {
     }
 
     @Test
+    fun `non-admin sync skips legacy upload but still applies the server snapshot`() = runBlocking {
+        local.save(null, "Локальный товар", 100, "00123")
+        remote.products = listOf(remoteProduct(id = "server-1", name = "Серверный товар"))
+        val readOnly = createRepository(canWrite = { false })
+
+        assertEquals(CatalogSyncResult.Success, readOnly.syncCatalog())
+
+        assertEquals(0, remote.createCalls)
+        assertEquals(listOf("server-1"), readOnly.observeProducts("").first().map { it.id })
+    }
+
+    @Test
     fun `active server barcode wins over a legacy local duplicate`() = runBlocking {
         local.save(null, "Старый локальный товар", 100, "00123")
         remote.products = listOf(
@@ -306,6 +318,36 @@ class SyncingProductRepositoryTest {
     }
 
     @Test
+    fun `non-admin save is rejected before a remote create`() = runBlocking {
+        val readOnly = createRepository(canWrite = { false })
+
+        assertEquals(
+            SaveProductResult.Forbidden,
+            readOnly.save(null, "Товар", 100, null),
+        )
+        assertEquals(0, remote.createCalls)
+        assertTrue(repository.observeProducts("").first().isEmpty())
+    }
+
+    @Test
+    fun `non-admin delete is rejected before a remote call`() = runBlocking {
+        val readOnly = createRepository(canWrite = { false })
+
+        assertFalse(readOnly.delete("server-1"))
+        assertEquals(0, remote.deleteCalls)
+    }
+
+    @Test
+    fun `forbidden server response is mapped for the editor`() = runBlocking {
+        remote.createError = ProductRemoteException.Forbidden
+
+        assertEquals(
+            SaveProductResult.Forbidden,
+            repository.save(null, "Товар", 100, null),
+        )
+    }
+
+    @Test
     fun `delete uses the local version and marks the cache row deleted`() = runBlocking {
         remote.products = listOf(remoteProduct(id = "server-1", name = "Товар", version = 3))
         repository.syncCatalog()
@@ -332,6 +374,7 @@ class SyncingProductRepositoryTest {
     private fun createRepository(
         retryPolicy: SyncRetryPolicy = SyncRetryPolicy(maxAttempts = 1),
         sleep: suspend (Long) -> Unit = {},
+        canWrite: () -> Boolean = { true },
     ): SyncingProductRepository = SyncingProductRepository(
         local = local,
         dao = database.productDao(),
@@ -341,6 +384,7 @@ class SyncingProductRepositoryTest {
         clock = { now },
         retryPolicy = retryPolicy,
         sleep = sleep,
+        canWrite = canWrite,
     )
 
     private class FakeSyncMetadataStore(
@@ -361,6 +405,8 @@ class SyncingProductRepositoryTest {
         var updateError: ProductRemoteException? = null
         var softDeleteError: ProductRemoteException? = null
         var createCalls = 0
+            private set
+        var deleteCalls = 0
             private set
         var createResult: (String, Long, String?) -> RemoteProduct = { name, price, barcode ->
             remoteProduct(id = "server-created", name = name, priceKzt = price, barcode = barcode)
@@ -438,6 +484,7 @@ class SyncingProductRepositoryTest {
             id: String,
             expectedVersion: Long,
         ): RemoteProduct {
+            deleteCalls++
             softDeleteError?.let { throw it }
             lastDelete = DeleteCall(id, expectedVersion)
             val deleted = softDeleteResult(id, expectedVersion)

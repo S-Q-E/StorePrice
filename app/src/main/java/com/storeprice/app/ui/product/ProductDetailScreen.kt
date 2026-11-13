@@ -77,6 +77,7 @@ fun ProductDetailScreen(
     onDeleted: () -> Unit,
     modifier: Modifier = Modifier,
     canEdit: Boolean = true,
+    isOffline: Boolean = false,
     viewModel: ProductDetailViewModel = viewModel(
         factory = ProductDetailViewModel.factory(
             repository = rememberProductRepository(),
@@ -140,6 +141,7 @@ fun ProductDetailScreen(
                 isDeleting = uiState.isDeleting,
                 deleteFailed = uiState.deleteFailed,
                 canEdit = canEdit,
+                isOffline = isOffline,
                 onEdit = { onEdit(requireNotNull(uiState.product).id) },
                 onDelete = { showDeleteDialog = true },
                 modifier = Modifier
@@ -193,6 +195,7 @@ private fun ProductDetails(
     isDeleting: Boolean,
     deleteFailed: Boolean,
     canEdit: Boolean,
+    isOffline: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -237,7 +240,9 @@ private fun ProductDetails(
 
         if (!canEdit) {
             Text(
-                text = stringResource(R.string.offline_edit_disabled),
+                text = stringResource(
+                    if (isOffline) R.string.offline_edit_disabled else R.string.admin_edit_only,
+                ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
             )

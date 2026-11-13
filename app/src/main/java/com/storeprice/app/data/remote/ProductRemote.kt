@@ -59,6 +59,7 @@ internal sealed class ProductRemoteException(message: String) : Exception(messag
     data object DuplicateBarcode : ProductRemoteException("Barcode is already used")
     data object VersionConflict : ProductRemoteException("Product version conflict")
     data object NotFound : ProductRemoteException("Product not found")
+    data object Forbidden : ProductRemoteException("Action is not allowed")
     data object Unauthorized : ProductRemoteException("Session is not authorized")
     data object NetworkUnavailable : ProductRemoteException("Server is unreachable")
     data object ServerError : ProductRemoteException("Server error")
@@ -323,8 +324,8 @@ internal class SupabaseProductRemote(
 internal fun RestException.toProductRemoteException(): ProductRemoteException {
     val text = listOfNotNull(error, description).joinToString(" ").lowercase(Locale.ROOT)
     return when {
-        statusCode == 401 || statusCode == 403 ->
-            ProductRemoteException.Unauthorized
+        statusCode == 401 -> ProductRemoteException.Unauthorized
+        statusCode == 403 -> ProductRemoteException.Forbidden
 
         text.contains("штрихкод уже используется") ||
             text.contains("duplicate key value") ||

@@ -22,6 +22,7 @@ import com.storeprice.app.data.repository.SyncingProductRepository
 import com.storeprice.app.data.sync.NetworkMonitor
 import com.storeprice.app.data.sync.SharedPreferencesSyncMetadataStore
 import com.storeprice.app.domain.auth.AuthState
+import com.storeprice.app.domain.model.EmployeeRole
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.MemoryCodeVerifierCache
@@ -74,9 +75,9 @@ class AppContainer(private val application: Application) {
             initialValue = networkMonitor.isOnlineNow(),
         )
 
-    val productRepository: ProductRepository = createProductRepository()
-
     val authRepository: AuthRepository = createAuthRepository(application)
+
+    val productRepository: ProductRepository = createProductRepository()
 
     init {
         startCatalogUpdates()
@@ -92,6 +93,12 @@ class AppContainer(private val application: Application) {
             database = database,
             remote = SupabaseProductRemote(client),
             metadata = SharedPreferencesSyncMetadataStore(application),
+            canWrite = {
+                val authState = authRepository.state.value
+                authState is AuthState.SignedIn &&
+                    authState.employee.role == EmployeeRole.ADMIN &&
+                    !authState.isOffline
+            },
         )
     }
 

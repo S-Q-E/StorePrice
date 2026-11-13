@@ -225,6 +225,12 @@ declare
     v_uid uuid := auth.uid();
     v_product public.products;
 begin
+    if not public.current_user_is_admin() then
+        raise exception using
+            errcode = '42501',
+            message = 'Редактировать каталог может только администратор';
+    end if;
+
     if not public.current_user_is_active() then
         raise exception using
             errcode = '42501',
@@ -320,6 +326,12 @@ as $$
 declare
     v_product public.products;
 begin
+    if not public.current_user_is_admin() then
+        raise exception using
+            errcode = '42501',
+            message = 'Редактировать каталог может только администратор';
+    end if;
+
     if not public.current_user_is_active() then
         raise exception using
             errcode = '42501',
@@ -370,19 +382,12 @@ begin
             message = 'Конфликт версий: товар изменён другим сотрудником';
     end if;
 
-    begin
-        update public.products
-        set name = btrim(p_name),
-            price_kzt = p_price_kzt,
-            barcode = nullif(btrim(p_barcode), '')
-        where id = p_id
-        returning * into v_product;
-    exception
-        when unique_violation then
-            raise exception using
-                errcode = '23505',
-                message = 'Штрихкод уже используется активным товаром';
-    end;
+    update public.products
+    set name = btrim(p_name),
+        price_kzt = p_price_kzt,
+        barcode = nullif(btrim(p_barcode), '')
+    where id = p_id
+    returning * into v_product;
 
     return v_product;
 end;
@@ -390,6 +395,67 @@ $$;
 
 comment on function public.update_product(uuid, integer, text, bigint, text, text) is
     'Обновляет товар с проверкой version. История цены и аудит пишутся триггерами.';
+
+create or replace function public.soft_delete_product(
+    p_id uuid,
+    p_expected_version integer,
+    p_device_id text default null
+)
+returns public.products
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+    v_product public.products;
+begin
+    if not public.current_user_is_admin() then
+        raise exception using
+            errcode = '42501',
+            message = 'Редактировать каталог может только администратор';
+    end if;
+
+    if p_expected_version is null then
+        raise exception using
+            errcode = '22023',
+            message = 'Не передана ожидаемая версия товара';
+    end if;
+
+    perform set_config('storeprice.device_id', coalesce(p_device_id, ''), true);
+
+    select *
+    into v_product
+    from public.products
+    where id = p_id
+    for update;
+
+    if not found then
+        raise exception using
+            errcode = 'P0002',
+            message = 'Товар не найден';
+    end if;
+
+    if v_product.version <> p_expected_version then
+        raise exception using
+            errcode = '40001',
+            message = 'Конфликт версий: товар изменён другим сотрудником';
+    end if;
+
+    if v_product.is_deleted then
+        return v_product;
+    end if;
+
+    update public.products
+    set is_deleted = true
+    where id = p_id
+    returning * into v_product;
+
+    return v_product;
+end;
+$$;
+
+comment on function public.soft_delete_product(uuid, integer, text) is
+    'Логическое удаление товара. Доступно только активному администратору.';
 
 create or replace function public.restore_product(
     p_id uuid,

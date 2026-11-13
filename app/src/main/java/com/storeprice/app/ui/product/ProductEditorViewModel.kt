@@ -23,6 +23,7 @@ enum class EditorFormError {
     SAVE_FAILED,
     NETWORK_UNAVAILABLE,
     VERSION_CONFLICT,
+    FORBIDDEN,
 }
 
 data class ProductEditorUiState(
@@ -155,6 +156,11 @@ class ProductEditorViewModel(
                             SaveProductResult.NetworkUnavailable -> state.copy(
                                 isSaving = false,
                                 formError = EditorFormError.NETWORK_UNAVAILABLE,
+                            )
+
+                            SaveProductResult.Forbidden -> state.copy(
+                                isSaving = false,
+                                formError = EditorFormError.FORBIDDEN,
                             )
 
                             SaveProductResult.ServerError -> state.copy(

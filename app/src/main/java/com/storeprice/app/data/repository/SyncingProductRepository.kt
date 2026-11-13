@@ -68,6 +68,7 @@ internal class SyncingProductRepository(
     private val clock: () -> Long = System::currentTimeMillis,
     private val retryPolicy: SyncRetryPolicy = SyncRetryPolicy(),
     private val sleep: suspend (Long) -> Unit = { delay(it) },
+    private val canWrite: () -> Boolean = { true },
 ) : ProductRepository {
 
     private val writeMutex = Mutex()
@@ -92,6 +93,7 @@ internal class SyncingProductRepository(
         priceKzt: Long,
         barcode: String?,
     ): SaveProductResult = writeMutex.withLock {
+        if (!canWrite()) return@withLock SaveProductResult.Forbidden
         val remote = remote ?: return local.save(id, name, priceKzt, barcode)
 
         val draft = when (
@@ -136,6 +138,7 @@ internal class SyncingProductRepository(
     }
 
     override suspend fun delete(id: String): Boolean = writeMutex.withLock {
+        if (!canWrite()) return@withLock false
         val remote = remote ?: return local.delete(id)
         val existing = dao.getById(id) ?: return false
         if (existing.isDeleted) return false
@@ -212,6 +215,9 @@ internal class SyncingProductRepository(
         var refreshSnapshot = false
         for (item in dao.getAll()) {
             if (item.isDeleted || item.id in serverIds) continue
+            // Legacy upload is a catalog write. An employee must still receive
+            // the server snapshot, but cannot publish old local rows.
+            if (!canWrite()) continue
             val normalizedBarcode = item.barcode?.lowercase(Locale.ROOT)
             if (normalizedBarcode != null && normalizedBarcode in activeBarcodes) continue
 
@@ -296,6 +302,7 @@ internal class SyncingProductRepository(
         -> true
 
         ProductRemoteException.Unauthorized,
+        ProductRemoteException.Forbidden,
         ProductRemoteException.DuplicateBarcode,
         ProductRemoteException.VersionConflict,
         ProductRemoteException.NotFound,
@@ -303,7 +310,10 @@ internal class SyncingProductRepository(
     }
 
     private fun ProductRemoteException.toSyncResult(): CatalogSyncResult = when (this) {
-        ProductRemoteException.Unauthorized -> CatalogSyncResult.Unauthorized
+        ProductRemoteException.Unauthorized,
+        ProductRemoteException.Forbidden,
+        -> CatalogSyncResult.Unauthorized
+
         ProductRemoteException.NetworkUnavailable -> CatalogSyncResult.NetworkUnavailable
         else -> CatalogSyncResult.ServerError
     }
@@ -313,6 +323,7 @@ internal class SyncingProductRepository(
         ProductRemoteException.VersionConflict -> SaveProductResult.VersionConflict
         ProductRemoteException.NotFound -> SaveProductResult.NotFound
         ProductRemoteException.NetworkUnavailable -> SaveProductResult.NetworkUnavailable
+        ProductRemoteException.Forbidden -> SaveProductResult.Forbidden
         ProductRemoteException.Unauthorized,
         ProductRemoteException.ServerError,
         -> SaveProductResult.ServerError

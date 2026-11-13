@@ -70,8 +70,8 @@ import com.storeprice.app.ui.rememberProductRepository
  *
  * @param isOffline если `true`, над списком показывается баннер о сохранённых
  * данных.
- * @param canEdit `false`, когда сеанс работает по кэшу профиля: первая версия
- * общей базы не ставит изменения в очередь и требует подтверждённого онлайна.
+ * @param canEdit `false` для сотрудника без роли администратора и когда сеанс
+ * работает по кэшу профиля: изменения доступны только администратору онлайн.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

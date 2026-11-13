@@ -55,6 +55,14 @@ class ScannerViewModel(
         launchLookup(barcode)
     }
 
+    /** Сбрасывает результат, чтобы после сообщения «Товар не найден» можно было сканировать снова. */
+    fun resetResult() {
+        pendingBarcode = null
+        _uiState.update {
+            it.copy(isProcessing = false, destination = null, lookupFailed = false)
+        }
+    }
+
     private fun launchLookup(barcode: String) {
         if (_uiState.value.isProcessing || _uiState.value.destination != null) return
 
