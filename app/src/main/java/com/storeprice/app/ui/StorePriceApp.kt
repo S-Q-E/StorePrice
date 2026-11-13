@@ -54,7 +54,11 @@ internal fun canEditCatalog(employee: EmployeeProfile, isOffline: Boolean): Bool
     employee.role == EmployeeRole.ADMIN && !isOffline
 
 @Composable
-fun StorePriceApp(modifier: Modifier = Modifier) {
+fun StorePriceApp(
+    modifier: Modifier = Modifier,
+    pendingProductId: String? = null,
+    onPendingProductHandled: () -> Unit = {},
+) {
     val authViewModel: AuthViewModel = viewModel(
         factory = AuthViewModel.factory(rememberAuthRepository()),
     )
@@ -95,6 +99,8 @@ fun StorePriceApp(modifier: Modifier = Modifier) {
                 // проверяется и на клиенте, и серверными RPC.
                 canEdit = canEditCatalog(authState.employee, isOffline),
                 onSignOut = authViewModel::signOut,
+                pendingProductId = pendingProductId,
+                onPendingProductHandled = onPendingProductHandled,
                 modifier = modifier,
             )
         }
@@ -114,6 +120,8 @@ private fun CatalogApp(
     onSignOut: () -> Unit,
     isOffline: Boolean,
     canEdit: Boolean,
+    pendingProductId: String?,
+    onPendingProductHandled: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
@@ -237,5 +245,15 @@ private fun CatalogApp(
                 },
             )
         }
+    }
+
+    // Переход по нажатию на push-уведомление. Эффект запускается после того,
+    // как NavHost установил граф, и повторяется для нового onNewIntent.
+    LaunchedEffect(pendingProductId) {
+        val productId = pendingProductId ?: return@LaunchedEffect
+        navController.navigate(Routes.productDetail(productId)) {
+            launchSingleTop = true
+        }
+        onPendingProductHandled()
     }
 }

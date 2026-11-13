@@ -8,6 +8,13 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// google-services.json не хранится в Git. Без него приложение собирается и
+// работает как раньше, но FCM-регистрация отключена до добавления конфигурации.
+val firebaseConfigured = file("google-services.json").isFile
+if (firebaseConfigured) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.isFile) {
@@ -34,13 +41,14 @@ android {
         applicationId = "com.storeprice.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "SUPABASE_URL", buildConfigString(supabaseUrl))
         buildConfigField("String", "SUPABASE_ANON_KEY", buildConfigString(supabaseAnonKey))
+        buildConfigField("boolean", "FIREBASE_CONFIGURED", firebaseConfigured.toString())
     }
 
     buildTypes {
@@ -106,6 +114,9 @@ dependencies {
     implementation(libs.supabase.postgrest)
     implementation(libs.supabase.realtime)
     implementation(libs.ktor.client.okhttp)
+
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

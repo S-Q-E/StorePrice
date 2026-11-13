@@ -13,8 +13,13 @@ import com.storeprice.app.data.auth.SharedPreferencesSessionManager
 import com.storeprice.app.data.auth.SupabaseAuthBackend
 import com.storeprice.app.data.auth.SupabaseAuthRepository
 import com.storeprice.app.data.auth.SupabaseProfileFetcher
+import com.storeprice.app.data.device.DeviceIdentity
 import com.storeprice.app.data.local.StorePriceDatabase
+import com.storeprice.app.data.notifications.DeviceTokenRegistrar
+import com.storeprice.app.data.notifications.FirebaseFcmTokenSource
+import com.storeprice.app.data.remote.DeviceTokenRemote
 import com.storeprice.app.data.remote.ProductRealtimeSource
+import com.storeprice.app.data.remote.SupabaseDeviceTokenRemote
 import com.storeprice.app.data.remote.SupabaseProductRemote
 import com.storeprice.app.data.repository.ProductRepository
 import com.storeprice.app.data.repository.RoomProductRepository
@@ -23,6 +28,7 @@ import com.storeprice.app.data.sync.NetworkMonitor
 import com.storeprice.app.data.sync.SharedPreferencesSyncMetadataStore
 import com.storeprice.app.domain.auth.AuthState
 import com.storeprice.app.domain.model.EmployeeRole
+import com.storeprice.app.notifications.PriceNotifier
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.MemoryCodeVerifierCache
@@ -54,6 +60,7 @@ class StorePriceApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        PriceNotifier.createChannel(this)
         container = AppContainer(this)
     }
 }
@@ -66,6 +73,9 @@ class AppContainer(private val application: Application) {
     private val sessionManager = SharedPreferencesSessionManager(application)
     private val supabase: SupabaseClient? = createSupabaseClient()
     private val networkMonitor = NetworkMonitor(application)
+    private val deviceIdentity = DeviceIdentity(application)
+    private val deviceId: String by lazy { deviceIdentity.get() }
+    private val deviceTokenRemote: DeviceTokenRemote? = supabase?.let(::SupabaseDeviceTokenRemote)
 
     /** Process-wide network state used by the catalog banner and auto-refresh. */
     val networkAvailable: StateFlow<Boolean> = networkMonitor.isOnline()
@@ -79,8 +89,26 @@ class AppContainer(private val application: Application) {
 
     val productRepository: ProductRepository = createProductRepository()
 
+    private val deviceTokenRegistrar: DeviceTokenRegistrar? by lazy {
+        val remote = deviceTokenRemote ?: return@lazy null
+        DeviceTokenRegistrar(
+            remote = remote,
+            tokenSource = FirebaseFcmTokenSource(application),
+            deviceId = deviceId,
+            authState = authRepository.state,
+            networkAvailable = networkAvailable,
+            scope = appScope,
+        )
+    }
+
     init {
         startCatalogUpdates()
+        deviceTokenRegistrar?.start()
+    }
+
+    /** Новый FCM-токен приходит из [StorePriceMessagingService]. */
+    fun onFcmTokenRefreshed(token: String) {
+        deviceTokenRegistrar?.onNewToken(token)
     }
 
     private fun createProductRepository(): ProductRepository {
@@ -91,7 +119,10 @@ class AppContainer(private val application: Application) {
             local = local,
             dao = dao,
             database = database,
-            remote = SupabaseProductRemote(client),
+            remote = SupabaseProductRemote(
+                supabase = client,
+                deviceIdProvider = { deviceId },
+            ),
             metadata = SharedPreferencesSyncMetadataStore(application),
             canWrite = {
                 val authState = authRepository.state.value
@@ -108,6 +139,7 @@ class AppContainer(private val application: Application) {
             backend = SupabaseAuthBackend(client, sessionManager),
             profileCache = CachedProfileStore(application),
             profileFetcher = SupabaseProfileFetcher(client),
+            beforeSignOut = { deviceTokenRegistrar?.unregister() },
         )
     }
 

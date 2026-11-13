@@ -2,7 +2,7 @@
 
 ## 1. Статус документа
 
-Описана целевая архитектура из ТЗ и фактически реализованные этапы 2–5: локальный каталог, сканер, серверная схема Supabase, Android-вход, каталог через RPC, инкрементальная синхронизация, Realtime-триггер, индикатор сети и офлайн-просмотр. Компоненты, отмеченные «план», ещё не реализованы.
+Описана целевая архитектура из ТЗ и фактически реализованные этапы 2–6: локальный каталог, сканер, серверная схема Supabase, Android-вход, каталог через RPC, инкрементальная синхронизация, Realtime-триггер, индикатор сети, офлайн-просмотр и локально реализованные push-уведомления. Firebase-конфигурация, применение миграции `005` и живая FCM-доставка ещё не выполнены; компоненты, отмеченные «план», не реализованы.
 
 ## 2. Целевая схема
 
@@ -23,23 +23,24 @@
 │    └── WorkManager (план: фоновая синхронизация)                       │
 │                                                                        │
 │  CameraX + ML Kit Barcode Scanning (локальное распознавание)           │
-│  Firebase Messaging (план: приём push, токен устройства)               │
+│  Firebase Messaging (клиент готов; нужен google-services.json)          │
 └────────────────────────────────────────────────────────────────────────┘
                  │ HTTPS / WebSocket / FCM
                  ▼
 ┌──────────────────────────────── Supabase ───────────────────────────────┐
 │ Auth (сотрудники, сессии)                                              │
-│ PostgreSQL: products, profiles, price_history, device_tokens, ...      │
+│ PostgreSQL: products, profiles, price_history, device_tokens,          │
+│             audit_log, notification_events, notification_deliveries    │
 │ RLS-политики + серверные функции/триггеры                              │
 │ Realtime (публикация изменений каталога)                               │
-│ Edge Function: проверка прав, запись истории, отправка FCM             │
+│ Edge Function: отправка FCM по transactional outbox                    │
 └────────────────────────────────────────────────────────────────────────┘
                  │ FCM HTTP v1
                  ▼
         Firebase Cloud Messaging → устройства сотрудников
 ```
 
-## 3. Реализованный поток данных (этапы 2–5)
+## 3. Реализованный поток данных (этапы 2–6)
 
 ```text
 Compose Screen
@@ -135,6 +136,39 @@ ProductRepository → Room ProductDao (active only)
 - длина штрихкода ≤ 64;
 - дубликат активного штрихкода проверяется репозиторием без учёта регистра.
 
+### Push-уведомления (этап 6, локально)
+
+```text
+UPDATE products (RPC администратора)
+    │ one transaction
+    ├── products UPDATE + version + audit_log
+    ├── price_history INSERT (только при изменении цены)
+    └── notification_events INSERT (trigger, outbox)
+             │
+             │ cron / внешний планировщик
+             ▼
+Edge Function send-price-notifications (service_role + x-worker-secret)
+    │ claim events → prepare deliveries → claim deliveries
+    ▼
+Firebase Admin SDK → FCM HTTP v1
+    │
+    ├── foreground: FirebaseMessagingService → локальное уведомление
+    └── background: системное уведомление FCM
+             │ tap
+             ▼
+MainActivity (singleTop) → product_id → NavHost → карточка товара
+```
+
+- Событие и `price_history` создаются атомарно; outbox исключает потерю между записью цены и постановкой push.
+- `notification_deliveries` содержит отдельную строку на устройство. Повторный `prepare` не создаёт дубликаты; `claim` переводит строки в `processing`, поэтому параллельные worker не отправляют одно и то же. Зависшие `processing` перезахватываются через 5 минут.
+- Автор изменения исключается по `device_id`; если устройство неизвестно, исключаются все устройства автора. Остальные активные устройства активных сотрудников получают уведомление.
+- Android хранит случайный UUID установки в `SharedPreferences` (`DeviceIdentity`) и передаёт его в RPC как `p_device_id`; серверный триггер записывает его в `price_history` и outbox.
+- FCM-токен регистрируется после входа и восстановления сети; перед выходом вызывается `unregister_device_token`. Токен не является средством авторизации.
+- `PriceNotificationPayload` проверяет `event_id`, `product_id`, название, цены, автора и `changed_at`; неполные сообщения игнорируются. Уведомление содержит время изменения.
+- Нажатие обрабатывается через `singleTop`/`onNewIntent`; `StorePriceApp` после установки NavHost открывает `product/{id}`.
+- FCM не даёт строгой гарантии «ровно один раз»: возможна повторная отправка при падении между ответом FCM и записью результата. Android-тег `price-<event_id>` заменяет уже показанное уведомление; статус `sent` означает принятие запроса FCM, а не показ пользователю.
+- Firebase-проект, `app/google-services.json`, service account, миграция `005` на живом проекте и деплой Edge Function ещё не выполнены. Инструкция — `docs/PUSH_NOTIFICATIONS.md`.
+
 ### Вход и сессия (этап 4)
 
 ```text
@@ -211,6 +245,8 @@ profiles (PostgREST, RLS) → Employee(role, is_active)
 | `price_history` | история изменений цены | неизменяемые строки, `operation_id`, `device_id` |
 | `device_tokens` | FCM-токены | только владелец, уникальность активных токенов |
 | `audit_log` | аудит товаров и сотрудников | чтение только администратором |
+| `notification_events` | transactional outbox изменений цены | создаётся триггером, читает только `service_role` |
+| `notification_deliveries` | доставки на устройства | уникальность `(event_id, device_token_id)`, retry и журнал |
 
 Решения:
 
@@ -281,7 +317,13 @@ com.storeprice.app
 │   │   └── SharedPreferencesSessionManager.kt
 │   ├── remote/
 │   │   ├── ProductRemote.kt      # PostgREST-пагинация, fetchSince
+│   │   ├── DeviceTokenRemote.kt  # register/unregister FCM-токена
 │   │   └── ProductRealtimeSource.kt
+│   ├── device/
+│   │   └── DeviceIdentity.kt     # стабильный UUID установки
+│   ├── notifications/
+│   │   ├── DeviceTokenRegistrar.kt
+│   │   └── FcmTokenSource.kt
 │   ├── sync/
 │   │   ├── SyncMetadataStore.kt  # курсор и время последнего sync
 │   │   └── NetworkMonitor.kt
@@ -296,6 +338,10 @@ com.storeprice.app
 │   ├── model/Product.kt
 │   ├── model/Employee.kt
 │   └── validation/ProductValidator.kt
+├── notifications/
+│   ├── PriceNotificationPayload.kt
+│   ├── PriceNotifier.kt
+│   └── StorePriceMessagingService.kt
 └── ui/
     ├── StorePriceApp.kt          # auth gate, NavHost, маршруты
     ├── AppRepository.kt
@@ -317,6 +363,9 @@ app/src/test/java/com/storeprice/app
 ├── ui/product/ (editor ViewModel)
 ├── ui/scanner/ (ScannerViewModel: result, duplicates, retry)
 ├── ui/auth/ (AuthViewModel: validation, sign-in, logout)
+├── notifications/ (payload parsing)
+├── data/device/ (stable device id)
+├── data/notifications/ (FCM token registrar)
 └── testutil/MainDispatcherRule.kt
 ```
 
@@ -336,7 +385,7 @@ app/src/test/java/com/storeprice/app
 | Android Auth | `supabase-kt` 3.0.0 (`auth-kt`, `postgrest-kt`), Ktor OkHttp 3.0.0-rc-1 | вход, сессия, профиль, офлайн-кэш и выход реализованы и проверены на телефоне |
 | Синхронизация | Repository + Room-first sync, `updated_at`-курсор, Realtime, NetworkMonitor | реализовано локально; живая проверка двух устройств и Realtime впереди |
 | Фоновая синхронизация | WorkManager | план; в текущем объёме повтор только в foreground |
-| Push | FCM + серверная Edge Function | план (этап 6) |
+| Push | FCM + серверная Edge Function | клиент, outbox и worker реализованы; Firebase-конфигурация, миграция `005` на живом проекте и живая доставка впереди |
 
 Версии зафиксированы в `gradle/libs.versions.toml`. Lint сообщает о более новых версиях; обновление — отдельная задача с повторной сборкой и тестами.
 
@@ -357,13 +406,13 @@ app/src/test/java/com/storeprice/app
 1. Миграции Room при изменении схемы; на этапе 5 схема не менялась, курсор вынесен в `SharedPreferences`.
 2. Стратегия инкрементальной синхронизации: `updated_at`-курсор реализован; журнал изменений и периодический полный sync для восстановления после повреждения кэша — возможное развитие.
 3. Разрешение конфликтов между локальной и серверной версией: серверный `version` и UI-сообщение реализованы; автоматическое слияние не делается.
-4. Схема очереди push-событий и защита от дублей — этап 6.
+4. Схема outbox и доставок реализована в `005`; осталось применить к живому проекту и проверить FCM. Строгая однократность при падении worker недостижима, используется дедупликация и тег уведомления.
 5. Формат CSV и правило сопоставления штрихкодов при импорте — этап 7.
 6. Отдельное шифрование сессии (EncryptedSharedPreferences/Keystore) — при повышении требований безопасности.
 
 ## 10. Тестирование
 
-Фактически выполнено на этапах 2–5:
+Фактически выполнено на этапах 2–6:
 
 - unit-тесты валидации, нормализации, форматирования цены/даты;
 - Robolectric-тесты Room: CRUD, дубликаты, мягкое удаление, поиск и приоритеты, 5 000 товаров, сохранение после закрытия/открытия БД, поиск активного товара по штрихкоду;
@@ -372,12 +421,14 @@ app/src/test/java/com/storeprice/app
 - тесты анализатора штрихкодов: выбор кода ближе к центру кадра, `null`-границы, несколько далёких кодов, пустой список;
 - тесты телефона: форматы `8...`, `+7...`, 10 цифр, международный номер, неверные и не-ASCII цифры;
 - ViewModel-тесты входа: валидация, нормализация, успех, ошибки, сброс ошибки, выход;
+- тесты push: разбор payload и обязательного времени, стабильный `device_id`, регистрация после входа/возврата сети/ротации токена, снятие токена перед выходом;
 - тесты синхронизации: полный снимок, инкрементальный upsert, движение курсора, сохранение кэша при ошибке, backoff чтения, отсутствие автоматических повторов записи из UI, состояние времени последней синхронизации;
 - smoke-тест запуска `MainActivity`;
 - ручная проверка на эмуляторе Android 15: каталог, карточка, поиск, дубликат, редактирование, удаление; экран сканера, разрешение/отказ, предпросмотр камеры, освобождение камеры при выходе;
 - ручная проверка входа на эмуляторе до настройки живого проекта: экран, локальная ошибка формата, реальный ответ `phone_provider_disabled`;
 - ручная проверка на физическом телефоне пользователем: распознавание штрихкодов, добавление товара и повторное открытие карточки (APK этапа 3);
-- SQL-миграции Supabase: применены к живому проекту; проверены таблицы, 9 политик RLS, 8 функций, 5 триггеров, вход администратора и чтение `products`/`profiles` с реальным JWT;
+- SQL-миграции Supabase: `001`–`004` применены к живому проекту; проверены таблицы, 9 политик RLS, 8 функций, 5 триггеров, вход администратора и чтение `products`/`profiles` с реальным JWT;
+- SQL-сценарий `005` на PostgreSQL 17: outbox, исключение автора, дедупликация доставок, retry/backoff, terminal failure и права worker RPC;
 - живой Supabase: Auth health 200, `external.phone: true`, `disable_signup: true`, анонимный доступ к `profiles` → `401`.
 
-Не выполнено: instrumented-тесты на устройстве, Compose UI-тесты, полная матрица форматов и edge-case-сценарии камеры на телефоне, деактивация/смена роли/refresh через живой JWT, Realtime на двух устройствах, индикатор сети и возврат сети на APK `0.5.0`, FCM. Подробности — `docs/TESTING.md`.
+Не выполнено: instrumented-тесты на устройстве, Compose UI-тесты, полная матрица форматов и edge-case-сценарии камеры на телефоне, деактивация/смена роли/refresh через живой JWT, Realtime на двух устройствах, индикатор сети и возврат сети на APK `0.6.0`, живая FCM-доставка, разрешение Android 13+, клик по уведомлению при закрытом приложении и деактивация недействительного токена на живом Firebase. Подробности — `docs/TESTING.md`.

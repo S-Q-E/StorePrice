@@ -26,9 +26,9 @@ source scripts/android-env.sh
 ./gradlew testDebugUnitTest --tests 'com.storeprice.app.ui.scanner.ScannerViewModelTest'
 ```
 
-## Фактический результат этапа 5
+## Фактический результат этапов 5–6
 
-**125 тестов: 125 прошли, 0 пропущено, 0 ошибок.** Lint: 0 ошибок, 55 предупреждений (51 × `GradleDependency`, 3 × `AndroidGradlePluginVersion`, 1 × `ObsoleteSdkInt`). Итоговая проверка выполнена командой `./gradlew testDebugUnitTest assembleDebug lintDebug` и завершилась `BUILD SUCCESSFUL` за 3 мин 58 с.
+**134 теста: 134 прошли, 0 пропущено, 0 ошибок.** Lint: 0 ошибок, 61 предупреждение (57 × `GradleDependency`, 3 × `AndroidGradlePluginVersion`, 1 × `ObsoleteSdkInt`). Итоговая проверка `./gradlew testDebugUnitTest lintDebug assembleDebug` завершилась `BUILD SUCCESSFUL` за 3 мин 49 с. Lint сначала нашёл `StringFormatMatches` и `MissingPermission`; после исправления оба замечания закрыты.
 
 | Класс | Тестов | Что проверяет |
 |---|---:|---|
@@ -50,6 +50,9 @@ source scripts/android-env.sh
 | `RemoteProductMappingTest` | 7 | нормализация серверной строки для Room, пустой штрихкод → `NULL`, маппинг ошибок PostgREST |
 | `SyncingProductRepositoryTest` | 21 | полный и инкрементальный sync, курсор, backoff чтения, отсутствие автоматических повторов записи из UI, legacy-выгрузка с `p_id`, create/update/delete, ошибки, отказ не-админу и пропуск его legacy-выгрузки |
 | `MainActivitySmokeTest` | 1 | запуск `MainActivity` без падения |
+| `PriceNotificationPayloadTest` | 4 | разбор FCM payload, время, обязательные поля, отрицательная цена |
+| `DeviceIdentityTest` | 1 | стабильный UUID установки |
+| `DeviceTokenRegistrarTest` | 4 | регистрация после входа/сети/ротации, снятие токена |
 
 Тесты Room и smoke-тест выполняются через Robolectric (`sdk = 34`), без устройства. База для CRUD-тестов — in-memory; для persistence-теста — файловая с удалением после теста. Smoke-тест создаёт `AppContainer` с реальным Supabase-клиентом, но без сети: сохранённой сессии нет, поэтому приложение показывает экран входа.
 
@@ -148,7 +151,7 @@ source scripts/android-env.sh
 - Realtime на двух устройствах: `004_realtime.sql` применена, publication проверена; осталось изменение на устройстве A и появление на устройстве B без ручного обновления.
 - Индикатор сети, время последней синхронизации и кнопка обновления на текущем APK: UI реализован, но живой сценарий на телефоне ещё не проверен.
 - Перезапуск без сети и возврат сети на текущем APK: каталог должен открыться из Room, а после reconnect обновиться автоматически.
-- FCM, уведомления, переход из уведомления.
+- Живая FCM-доставка: разрешение Android 13+, push при закрытом приложении, клик после холодного старта, два устройства, Doze/фон и деактивация недействительного токена. Локально проверены payload, `device_id`, регистрация токена и SQL-сценарий outbox.
 - Офлайн-очередь изменений и автоматическое слияние конфликтов.
 - WorkManager и фоновая синхронизация.
 - Release-сборка и подпись.
@@ -268,6 +271,30 @@ adb shell am start -n com.storeprice.app/.MainActivity
 9. Проверить в logcat отсутствие штормов запросов: при ошибке сети чтение делает не более трёх попыток, затем ждёт следующего события/ручного обновления.
 10. Проверить, что при неудачном сохранении в офлайне форма показывает ошибку и не теряет введённые значения; ложного сообщения «Сохранено» быть не должно.
 
+### Push-уведомления (этап 6, локально проверено, на устройстве нет)
+
+Локально проверено: парсер payload, `DeviceIdentity`, регистрация/снятие токена, SQL-сценарий outbox (создание события только при изменении цены, исключение автора, дедупликация доставок, processing/retry/backoff, terminal failure, права worker RPC). Живая отправка не выполнялась.
+
+Перед проверкой:
+
+1. Создать Firebase-проект, добавить `app/google-services.json`, собрать APK и убедиться, что `BuildConfig.FIREBASE_CONFIGURED = true`.
+2. Применить `202611130005_push_notifications.sql`, задеплоить `send-price-notifications` и настроить секреты/cron по `docs/PUSH_NOTIFICATIONS.md`.
+
+Сценарий:
+
+1. Установить APK `0.6.0` на два устройства, войти двумя активными сотрудниками.
+2. На Android 13+ разрешить уведомления.
+3. На устройстве A изменить цену товара → устройство A не получает push, устройство B получает уведомление с названием, старой/новой ценой, именем и временем.
+4. Нажать уведомление на B → открывается карточка товара; проверить при закрытом приложении и при уже открытом.
+5. Изменить цену на B → уведомление получает A.
+6. Свернуть B или закрыть приложение → push приходит в системный трей в пределах Android/FCM.
+7. Проверить журнал `notification_events`/`notification_deliveries`: успех → `sent`, временная ошибка → `pending` и рост `attempts`, недействительный токен → `skipped` и `device_tokens.is_active = false`.
+8. Проверить, что повторный запуск worker не отправляет уже `sent`-доставки повторно.
+9. Проверить, что при отказе в разрешении каталог работает, а уведомления не показываются.
+10. Проверить, что событие не создаётся при сохранении формы без изменения цены.
+
+**Не проверено:** реальный FCM, закрытое приложение, Doze/фон, клик после холодного старта, два устройства, деактивация недействительного токена на живом Firebase.
+
 ### Сканер на телефоне
 
 1. Войти в сканер при выданном разрешении → предпросмотр без чёрного экрана.
@@ -300,7 +327,7 @@ adb shell am start -n com.storeprice.app/.MainActivity
 
 ## SQL-миграции Supabase (локальная проверка)
 
-Миграции `supabase/migrations/202611100001_schema.sql`, `202611100002_rls_and_rpc.sql`, `202611100003_hardening.sql` и `202611120004_realtime.sql` проверены на временной базе PostgreSQL 17 с заглушками `auth.users`, `auth.uid()`, `auth.role()` и ролями `anon`/`authenticated`/`service_role`. Миграции `003` и `004` применены дважды, чтобы проверить идемпотентность; после `004` `pg_publication_tables` содержит `supabase_realtime|public|products`. Локальный PostgreSQL выдал предупреждение о `wal_level`, потому что это не Supabase и логическая репликация не настроена; на hosted-проекте `wal_level=logical` уже задан. 2026-11-13 миграция `003` повторно применена поверх `001`/`002` и проверена отдельным SQL-сценарием прав. В тот же день `003` применена к живому `zhqvrzowbvkeurikjatf` через Management API; `pg_get_functiondef` содержит сообщение проверки для `create_product`, `update_product` и `soft_delete_product`, `authenticated` имеет `EXECUTE`, `anon` — нет, у `handle_new_user` `EXECUTE` отозван, 9 политик используют scalar subquery. Живой Auth + PostgREST с JWT администратора вызвал новую пятиаргументную `create_product` с пустым названием и получил `22023`: schema cache обновлён, проверка роли пройдена, строка не создана. Проверено:
+Миграции `supabase/migrations/202611100001_schema.sql`, `202611100002_rls_and_rpc.sql`, `202611100003_hardening.sql` и `202611120004_realtime.sql` проверены на временной базе PostgreSQL 17 с заглушками `auth.users`, `auth.uid()`, `auth.role()` и ролями `anon`/`authenticated`/`service_role`. Миграция `202611130005_push_notifications.sql` проверена отдельно дважды (идемпотентность): outbox, доставки, триггер и worker RPC; к живому проекту пока не применена. Миграции `003` и `004` применены дважды, чтобы проверить идемпотентность; после `004` `pg_publication_tables` содержит `supabase_realtime|public|products`. Локальный PostgreSQL выдал предупреждение о `wal_level`, потому что это не Supabase и логическая репликация не настроена; на hosted-проекте `wal_level=logical` уже задан. 2026-11-13 миграция `003` повторно применена поверх `001`/`002` и проверена отдельным SQL-сценарием прав. В тот же день `003` применена к живому `zhqvrzowbvkeurikjatf` через Management API; `pg_get_functiondef` содержит сообщение проверки для `create_product`, `update_product` и `soft_delete_product`, `authenticated` имеет `EXECUTE`, `anon` — нет, у `handle_new_user` `EXECUTE` отозван, 9 политик используют scalar subquery. Живой Auth + PostgREST с JWT администратора вызвал новую пятиаргументную `create_product` с пустым названием и получил `22023`: schema cache обновлён, проверка роли пройдена, строка не создана. Проверено:
 
 - профиль создаётся триггером и неактивен по умолчанию;
 - неактивный и деактивированный сотрудник не читает каталог и не вызывает RPC;

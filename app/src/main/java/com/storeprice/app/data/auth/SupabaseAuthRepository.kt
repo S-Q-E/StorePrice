@@ -42,6 +42,7 @@ internal class SupabaseAuthRepository(
     profileCache: CachedProfileStore,
     private val profileFetcher: ProfileFetcher,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val beforeSignOut: suspend () -> Unit = {},
 ) : AuthRepository {
 
     private val profileCheckMutex = Mutex()
@@ -90,6 +91,13 @@ internal class SupabaseAuthRepository(
     }
 
     override suspend fun signOut() {
+        try {
+            beforeSignOut()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            Log.w(TAG, "Could not deactivate the device token before sign-out", error)
+        }
         runCatching { backend.signOut() }
         runCatching { backend.clearSession() }
         sessionController.onSignedOut()

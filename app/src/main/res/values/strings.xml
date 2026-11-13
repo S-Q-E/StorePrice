@@ -116,4 +116,9 @@
     <string name="admin_edit_only">Редактировать каталог может только администратор.</string>
     <string name="error_save_forbidden">Редактировать каталог может только администратор.</string>
     <string name="error_delete_failed">Не удалось удалить товар. Попробуйте ещё раз.</string>
+
+    <string name="notification_channel_price">Изменения цен</string>
+    <string name="notification_channel_price_description">Уведомления об изменении цен в общем каталоге</string>
+    <string name="notification_price_title">Изменение цены</string>
+    <string name="notification_price_body">%1$s: %2$s → %3$s. Изменил: %4$s, %5$s</string>
 </resources>

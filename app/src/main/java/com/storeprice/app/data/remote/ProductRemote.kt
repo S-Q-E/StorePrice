@@ -113,6 +113,7 @@ internal interface ProductRemote {
  */
 internal class SupabaseProductRemote(
     private val supabase: SupabaseClient,
+    private val deviceIdProvider: () -> String? = { null },
 ) : ProductRemote {
 
     private val json = Json {
@@ -194,6 +195,7 @@ internal class SupabaseProductRemote(
             put("p_name", name)
             put("p_price_kzt", priceKzt)
             put("p_barcode", if (barcode != null) JsonPrimitive(barcode) else JsonNull)
+            deviceIdProvider()?.takeIf { it.isNotBlank() }?.let { put("p_device_id", it) }
             if (clientId != null) {
                 put("p_id", clientId)
             }
@@ -215,6 +217,7 @@ internal class SupabaseProductRemote(
                 put("p_name", name)
                 put("p_price_kzt", priceKzt)
                 put("p_barcode", if (barcode != null) JsonPrimitive(barcode) else JsonNull)
+                deviceIdProvider()?.takeIf { it.isNotBlank() }?.let { put("p_device_id", it) }
             },
         )
         decodeSingle(result).toDomain()
@@ -229,6 +232,7 @@ internal class SupabaseProductRemote(
             parameters = buildJsonObject {
                 put("p_id", id)
                 put("p_expected_version", expectedVersion)
+                deviceIdProvider()?.takeIf { it.isNotBlank() }?.let { put("p_device_id", it) }
             },
         )
         decodeSingle(result).toDomain()
